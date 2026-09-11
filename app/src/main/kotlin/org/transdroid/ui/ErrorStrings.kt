@@ -44,7 +44,14 @@ fun TorrentStatus.label(): String = stringResource(
     }
 )
 
-/** The status label, with the magnet metadata-fetch phase surfaced explicitly. */
+/**
+ * The status label, with the magnet metadata-fetch phase surfaced explicitly — but only
+ * while actually downloading; a paused or errored magnet keeps its real status visible.
+ */
 @Composable
 fun org.transdroid.protocol.Torrent.statusLabel(): String =
-    if (metadataProgress != null) stringResource(R.string.status_metadata) else status.label()
+    if (metadataProgress != null && status == TorrentStatus.DOWNLOADING) {
+        stringResource(R.string.status_metadata)
+    } else {
+        status.label()
+    }

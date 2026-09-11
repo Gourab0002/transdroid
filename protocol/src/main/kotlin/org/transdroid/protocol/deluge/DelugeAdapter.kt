@@ -86,14 +86,36 @@ class DelugeAdapter(
 
     override suspend fun listTorrents(): List<Torrent> {
         ensureAuthenticated()
-        val result = call(
-            "core.get_torrents_status",
-            buildJsonObject {},
-            buildJsonArray { TORRENT_KEYS.forEach { add(it) } },
-        )
+        val result = try {
+            call(
+                "core.get_torrents_status",
+                buildJsonObject {},
+                buildJsonArray { TORRENT_KEYS.forEach { add(it) } },
+            )
+        } catch (e: DaemonException.UnexpectedResponse) {
+            explainIfDaemonDisconnected(e)
+        }
         val torrents = result as? JsonObject
             ?: throw DaemonException.UnexpectedResponse("Unexpected core.get_torrents_status reply")
         return torrents.entries.map { (hash, fields) -> parseTorrent(hash, fields.jsonObject) }
+    }
+
+    /**
+     * core.* calls fail with an opaque "Unknown method" when deluge-web has lost its
+     * connection to the daemon (routine after a daemon restart); name the real problem.
+     */
+    private suspend fun explainIfDaemonDisconnected(original: DaemonException): Nothing {
+        val connected = try {
+            call("web.connected").jsonPrimitive.booleanOrNull
+        } catch (e: Exception) {
+            null
+        }
+        if (connected == false) {
+            throw DaemonException.UnexpectedResponse(
+                "Deluge's web interface is not connected to its daemon — open the Deluge web UI and pick the daemon in its connection manager"
+            )
+        }
+        throw original
     }
 
     private fun parseTorrent(hash: String, obj: JsonObject): Torrent {

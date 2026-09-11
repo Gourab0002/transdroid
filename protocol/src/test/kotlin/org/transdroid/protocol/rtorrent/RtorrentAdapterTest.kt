@@ -103,9 +103,11 @@ class RtorrentAdapterTest {
 
         assertEquals(TorrentStatus.PAUSED, torrents[2].status)
 
-        val errored = torrents[3]
-        assertEquals(TorrentStatus.ERROR, errored.status)
-        assertTrue(errored.error!!.contains("Unregistered torrent"))
+        // d.message is informational (tracker notices persist while torrents work);
+        // status comes from the state machine, the message stays as display text
+        val withMessage = torrents[3]
+        assertEquals(TorrentStatus.DOWNLOADING, withMessage.status)
+        assertTrue(withMessage.error!!.contains("Unregistered torrent"))
     }
 
     @Test
@@ -131,6 +133,19 @@ class RtorrentAdapterTest {
         val body = server.takeRequest().body.readUtf8()
         assertTrue(body.contains("<methodName>load.start</methodName>"))
         assertTrue("ampersand must be XML-escaped", body.contains("magnet:?xt=urn:btih:abc&amp;dn=name"))
+    }
+
+    @Test
+    fun `add by file raises the xmlrpc size limit first`() = runTest {
+        server.enqueue(xmlResponse("<i8>0</i8>"))
+        server.enqueue(xmlResponse("<i8>0</i8>"))
+
+        adapter.addByFile("big.torrent", ByteArray(600_000))
+
+        val first = server.takeRequest().body.readUtf8()
+        assertTrue(first.contains("<methodName>network.xmlrpc.size_limit.set</methodName>"))
+        val second = server.takeRequest().body.readUtf8()
+        assertTrue(second.contains("<methodName>load.raw_start</methodName>"))
     }
 
     @Test

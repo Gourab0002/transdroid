@@ -62,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -100,7 +101,8 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var showExportDialog by remember { mutableStateOf(false) }
-    var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
+    // Saveable: the document picker can recreate the activity before delivering the uri
+    var pendingBackup by rememberSaveable { mutableStateOf<ByteArray?>(null) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
     val exportWrittenMessage = stringResource(R.string.backup_export_done)
     val exportFailedMessage = stringResource(R.string.backup_export_failed)
@@ -113,9 +115,9 @@ fun SettingsScreen(
     ) { uri ->
         val bytes = pendingBackup
         pendingBackup = null
-        if (uri != null && bytes != null) {
+        if (uri != null) {
             scope.launch {
-                val ok = withContext(Dispatchers.IO) {
+                val ok = bytes != null && withContext(Dispatchers.IO) {
                     try {
                         context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } != null
                     } catch (e: Exception) {

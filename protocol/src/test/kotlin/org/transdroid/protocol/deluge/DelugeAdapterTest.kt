@@ -168,11 +168,29 @@ class DelugeAdapterTest {
     }
 
     @Test
+    fun `disconnected web ui is explained instead of unknown method`() = runTest {
+        server.enqueue(loginOk())
+        server.enqueue(
+            MockResponse().setBody("""{"result": null, "error": {"message": "Unknown method", "code": 2}, "id": 2}""")
+        )
+        server.enqueue(MockResponse().setBody("""{"result": false, "error": null, "id": 3}"""))
+
+        try {
+            adapter.listTorrents()
+            fail("Expected DaemonException.UnexpectedResponse")
+        } catch (expected: DaemonException.UnexpectedResponse) {
+            assertTrue(expected.message!!.contains("not connected to its daemon"))
+        }
+    }
+
+    @Test
     fun `daemon error maps to unexpected response`() = runTest {
         server.enqueue(loginOk())
         server.enqueue(
             MockResponse().setBody("""{"result": null, "error": {"message": "Unknown method", "code": 2}, "id": 2}""")
         )
+        // The adapter double-checks web.connected before reporting; here it IS connected
+        server.enqueue(MockResponse().setBody("""{"result": true, "error": null, "id": 3}"""))
 
         try {
             adapter.listTorrents()

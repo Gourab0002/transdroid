@@ -27,6 +27,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.float
 import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -58,7 +59,9 @@ class TransmissionAdapter(
 ) : DaemonAdapter {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val rpcUrl = config.baseUrl + (config.path?.takeIf { it.isNotBlank() } ?: "/transmission/rpc")
+    private val rpcUrl = config.baseUrl +
+        (config.path?.takeIf { it.isNotBlank() } ?: "/transmission/rpc")
+            .let { if (it.startsWith("/")) it else "/$it" }
 
     @Volatile
     private var sessionId: String? = null
@@ -221,10 +224,14 @@ class TransmissionAdapter(
     }
 
     private fun parseTorrent(obj: JsonObject): Torrent {
-        val error = obj["errorString"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+        // Transmission fills errorString for routine tracker warnings too (error codes
+        // 1/2) while the torrent keeps working; only code 3 is a real local error
+        val errorCode = obj["error"]?.jsonPrimitive?.intOrNull ?: 0
+        val errorText = obj["errorString"]?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotBlank() && errorCode != 0 }
         val statusCode = obj["status"]?.jsonPrimitive?.int ?: -1
         val status = when {
-            error != null -> TorrentStatus.ERROR
+            errorCode == 3 -> TorrentStatus.ERROR
             else -> when (statusCode) {
                 0 -> TorrentStatus.PAUSED
                 1, 2 -> TorrentStatus.CHECKING
@@ -244,14 +251,17 @@ class TransmissionAdapter(
             downloadRate = obj["rateDownload"]?.jsonPrimitive?.long ?: 0L,
             uploadRate = obj["rateUpload"]?.jsonPrimitive?.long ?: 0L,
             etaSeconds = eta,
-            sizeBytes = obj["totalSize"]?.jsonPrimitive?.long ?: 0L,
-            downloadedBytes = obj["downloadedEver"]?.jsonPrimitive?.long ?: 0L,
+            // sizeWhenDone/haveValid+haveUnchecked reflect the *wanted* files; totalSize
+            // and downloadedEver would count deselected files and discarded data
+            sizeBytes = obj["sizeWhenDone"]?.jsonPrimitive?.long ?: 0L,
+            downloadedBytes = (obj["haveValid"]?.jsonPrimitive?.long ?: 0L) +
+                (obj["haveUnchecked"]?.jsonPrimitive?.long ?: 0L),
             uploadedBytes = obj["uploadedEver"]?.jsonPrimitive?.long ?: 0L,
             ratio = (obj["uploadRatio"]?.jsonPrimitive?.float ?: 0f).coerceAtLeast(0f),
             peersConnected = obj["peersConnected"]?.jsonPrimitive?.int ?: 0,
             addedTimestamp = obj["addedDate"]?.jsonPrimitive?.long?.takeIf { it > 0 },
             downloadDir = obj["downloadDir"]?.jsonPrimitive?.contentOrNull,
-            error = error,
+            error = errorText,
             labels = obj["labels"]?.jsonArray
                 ?.mapNotNull { it.jsonPrimitive.contentOrNull?.takeIf(String::isNotBlank) }
                 ?: emptyList(),
@@ -266,8 +276,9 @@ class TransmissionAdapter(
 
         val TORRENT_FIELDS = listOf(
             "id", "name", "status", "percentDone", "rateDownload", "rateUpload", "eta",
-            "totalSize", "downloadedEver", "uploadedEver", "uploadRatio", "peersConnected",
-            "addedDate", "downloadDir", "errorString", "labels", "metadataPercentComplete",
+            "sizeWhenDone", "haveValid", "haveUnchecked", "uploadedEver", "uploadRatio",
+            "peersConnected", "addedDate", "downloadDir", "error", "errorString", "labels",
+            "metadataPercentComplete",
         )
     }
 }

@@ -188,8 +188,12 @@ class QbittorrentAdapter(
             if (!response.isSuccessful || body.trim() != "Ok.") {
                 throw DaemonException.Authentication("qBittorrent rejected the username/password")
             }
-            val cookie = response.headers("Set-Cookie").firstOrNull { it.startsWith("SID=") }
-                ?: throw DaemonException.UnexpectedResponse("qBittorrent login did not return a session cookie")
+            // The session cookie is SID= historically; qBittorrent 5.1+ issues a
+            // per-instance QBT_SID_<suffix>= cookie instead
+            val cookie = response.headers("Set-Cookie").firstOrNull {
+                val name = it.substringBefore('=')
+                name == "SID" || name.startsWith("QBT_SID")
+            } ?: throw DaemonException.UnexpectedResponse("qBittorrent login did not return a session cookie")
             sessionCookie = cookie.substringBefore(';')
         }
     }

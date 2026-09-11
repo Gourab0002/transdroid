@@ -82,6 +82,21 @@ class QbittorrentAdapterTest {
     }
 
     @Test
+    fun `accepts qbittorrent 5_1 QBT_SID cookies`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setBody("Ok.")
+                .setHeader("Set-Cookie", "QBT_SID_ab12cd=tokenValue; HttpOnly; path=/")
+        )
+        server.enqueue(MockResponse().setBody(fixture("torrents-info.json")))
+
+        adapter().listTorrents()
+
+        server.takeRequest() // login
+        assertEquals("QBT_SID_ab12cd=tokenValue", server.takeRequest().getHeader("Cookie"))
+    }
+
+    @Test
     fun `rejected login maps to authentication error`() = runTest {
         server.enqueue(MockResponse().setBody("Fails."))
 

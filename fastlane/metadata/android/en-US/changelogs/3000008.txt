@@ -1,0 +1,7 @@
+* New home screen widget: your most active torrents with live progress bars
+* Filter the torrent list by name; total speeds shown in the top bar
+* Fixed: qBittorrent 5.1+ logins (new QBT_SID cookie name)
+* Fixed: torrents with a flaky tracker no longer show as errored (Transmission and rTorrent)
+* Fixed: Transmission sizes now reflect selected files only
+* Large .torrent uploads to rTorrent work (XML-RPC size limit raised automatically)
+* Clear message when Deluge's web UI is not connected to its daemon

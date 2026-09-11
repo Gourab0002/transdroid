@@ -96,9 +96,13 @@ class TransmissionAdapterTest {
         assertEquals(1220L, downloading.etaSeconds)
         assertEquals(34, downloading.peersConnected)
         assertEquals(listOf("isos"), downloading.labels)
+        assertEquals("sizeWhenDone is the wanted size", 6114656256L, downloading.sizeBytes)
+        assertEquals("haveValid+haveUnchecked", 2608512724L, downloading.downloadedBytes)
 
         val seeding = torrents[1]
-        assertEquals(TorrentStatus.SEEDING, seeding.status)
+        assertEquals("a tracker warning (error 2) must not mark the torrent errored",
+            TorrentStatus.SEEDING, seeding.status)
+        assertEquals("Tracker announce timed out", seeding.error)
         assertNull("eta -1 must normalize to null", seeding.etaSeconds)
         assertEquals(2.0f, seeding.ratio, 0.0001f)
         assertTrue(seeding.isFinished)
@@ -108,7 +112,7 @@ class TransmissionAdapterTest {
         assertEquals("negative ratio must clamp to 0", 0f, paused.ratio, 0.0001f)
 
         val errored = torrents[3]
-        assertEquals(TorrentStatus.ERROR, errored.status)
+        assertEquals("only a local error (3) is a real error", TorrentStatus.ERROR, errored.status)
         assertEquals("Unregistered torrent", errored.error)
 
         // A magnet still fetching its metadata reports the fetch progress, not 0%
