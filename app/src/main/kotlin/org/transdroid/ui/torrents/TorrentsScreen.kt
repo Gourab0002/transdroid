@@ -35,7 +35,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -52,6 +54,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -115,9 +118,16 @@ fun TorrentsScreen(
                 title = {
                     Column {
                         Text(stringResource(R.string.torrents_title))
-                        ui.activeProfile?.let {
+                        ui.activeProfile?.let { profile ->
+                            val transferring = ui.hasLoaded &&
+                                (ui.totalDownloadRate > 0 || ui.totalUploadRate > 0)
                             Text(
-                                it.displayName,
+                                if (transferring) {
+                                    "${profile.displayName} · ↓ ${formatSpeed(ui.totalDownloadRate)} " +
+                                        "↑ ${formatSpeed(ui.totalUploadRate)}"
+                                } else {
+                                    profile.displayName
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -196,13 +206,26 @@ private fun TorrentListContent(
         ui.error?.let { error ->
             ErrorBanner(message = error.message(), onRetry = { viewModel.refresh() })
         }
+        var showNameFilter by remember { mutableStateOf(ui.nameFilter.isNotBlank()) }
         Row(
             Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = {
+                showNameFilter = !showNameFilter
+                if (!showNameFilter) viewModel.setNameFilter("")
+            }) {
+                Icon(
+                    Icons.Default.FilterList,
+                    contentDescription = stringResource(R.string.filter_by_name),
+                    tint = if (showNameFilter) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             TorrentFilter.entries.forEach { filter ->
                 FilterChip(
                     selected = ui.filter == filter,
@@ -210,6 +233,24 @@ private fun TorrentListContent(
                     label = { Text(filter.label()) },
                 )
             }
+        }
+        if (showNameFilter) {
+            OutlinedTextField(
+                value = ui.nameFilter,
+                onValueChange = { viewModel.setNameFilter(it) },
+                placeholder = { Text(stringResource(R.string.filter_by_name)) },
+                trailingIcon = {
+                    if (ui.nameFilter.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setNameFilter("") }) {
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.details_cancel))
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
         }
         if (ui.availableLabels.isNotEmpty()) {
             Row(

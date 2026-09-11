@@ -26,10 +26,22 @@ import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentStatus
 
 private val Context.widgetDataStore by preferencesDataStore(name = "widget_state")
+
+/** One row of the list widget; a trimmed-down torrent snapshot. */
+@Serializable
+data class WidgetTorrent(
+    val name: String,
+    val progress: Float,
+    val status: TorrentStatus,
+    val downloadRate: Long,
+    val uploadRate: Long,
+)
 
 data class WidgetState(
     val serverName: String? = null,
@@ -39,12 +51,13 @@ data class WidgetState(
     val downloadRate: Long = 0,
     val uploadRate: Long = 0,
     val updatedAtMillis: Long? = null,
+    val torrents: List<WidgetTorrent> = emptyList(),
 )
 
 /**
  * A small snapshot of the last successful torrent list, written on every refresh (foreground
- * or background) and read by the home screen widget. No torrent names or credentials are
- * stored here — it is unencrypted preference data.
+ * or background) and read by the home screen widgets. Holds torrent names and progress but
+ * no credentials; it is unencrypted preference data.
  */
 class WidgetStateRepository(private val context: Context) {
 
@@ -55,6 +68,9 @@ class WidgetStateRepository(private val context: Context) {
     private val downRateKey = longPreferencesKey("download_rate")
     private val upRateKey = longPreferencesKey("upload_rate")
     private val updatedKey = longPreferencesKey("updated_at")
+    private val torrentsKey = stringPreferencesKey("torrents_snapshot")
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     val state: Flow<WidgetState> = context.widgetDataStore.data.map { prefs ->
         WidgetState(
@@ -65,6 +81,13 @@ class WidgetStateRepository(private val context: Context) {
             downloadRate = prefs[downRateKey] ?: 0,
             uploadRate = prefs[upRateKey] ?: 0,
             updatedAtMillis = prefs[updatedKey],
+            torrents = prefs[torrentsKey]?.let {
+                try {
+                    json.decodeFromString<List<WidgetTorrent>>(it)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } ?: emptyList(),
         )
     }
 
@@ -81,6 +104,22 @@ class WidgetStateRepository(private val context: Context) {
             pausedCount = torrents.count { it.status == TorrentStatus.PAUSED },
             downloadRate = torrents.sumOf { it.downloadRate },
             uploadRate = torrents.sumOf { it.uploadRate },
+            torrents = torrents
+                .sortedWith(
+                    compareByDescending<Torrent> { it.status.isActive }
+                        .thenByDescending { it.downloadRate }
+                        .thenBy { it.name.lowercase() }
+                )
+                .take(MAX_LIST_ROWS)
+                .map {
+                    WidgetTorrent(
+                        name = it.name,
+                        progress = it.displayProgress,
+                        status = it.status,
+                        downloadRate = it.downloadRate,
+                        uploadRate = it.uploadRate,
+                    )
+                },
         )
         // The list refreshes every few seconds; skip the write when nothing changed
         if (snapshot == lastWritten) return
@@ -93,7 +132,13 @@ class WidgetStateRepository(private val context: Context) {
             prefs[downRateKey] = snapshot.downloadRate
             prefs[upRateKey] = snapshot.uploadRate
             prefs[updatedKey] = System.currentTimeMillis()
+            prefs[torrentsKey] = json.encodeToString(snapshot.torrents)
         }
         TransdroidWidget().updateAll(context)
+        TransdroidListWidget().updateAll(context)
+    }
+
+    private companion object {
+        const val MAX_LIST_ROWS = 10
     }
 }

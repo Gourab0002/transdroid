@@ -95,6 +95,7 @@ data class TorrentsUiState(
     val error: UiError? = null,
     val filter: TorrentFilter = TorrentFilter.ALL,
     val labelFilter: String? = null,
+    val nameFilter: String = "",
     val sort: TorrentSort = TorrentSort.DATE_ADDED,
     val selectedTorrentId: String? = null,
     val files: Map<String, List<TorrentFile>> = emptyMap(),
@@ -102,9 +103,19 @@ data class TorrentsUiState(
     val availableLabels: List<String>
         get() = torrents.flatMap { it.labels }.distinct().sorted()
 
+    val totalDownloadRate: Long
+        get() = torrents.sumOf { it.downloadRate }
+
+    val totalUploadRate: Long
+        get() = torrents.sumOf { it.uploadRate }
+
     val visibleTorrents: List<Torrent>
         get() = torrents
-            .filter { filter.matches(it) && (labelFilter == null || labelFilter in it.labels) }
+            .filter {
+                filter.matches(it) &&
+                    (labelFilter == null || labelFilter in it.labels) &&
+                    (nameFilter.isBlank() || it.name.contains(nameFilter.trim(), ignoreCase = true))
+            }
             .sortedWith(sort.comparator().thenBy { it.name.lowercase() })
 
     val selectedTorrent: Torrent?
@@ -181,6 +192,10 @@ class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setLabelFilter(label: String?) {
         _ui.update { it.copy(labelFilter = if (it.labelFilter == label) null else label) }
+    }
+
+    fun setNameFilter(query: String) {
+        _ui.update { it.copy(nameFilter = query) }
     }
 
     fun setFilePriority(torrentId: String, file: TorrentFile, priority: FilePriority) {

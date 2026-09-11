@@ -18,6 +18,7 @@
     <string name="filter_seeding">Seeding</string>
     <string name="filter_paused">Paused</string>
     <string name="filter_error">Error</string>
+    <string name="filter_by_name">Filter by name</string>
 
     <!-- Torrent statuses -->
     <string name="status_downloading">Downloading</string>
@@ -179,6 +180,7 @@
 
     <!-- Widget -->
     <string name="widget_description">Torrent counts and speeds of your active server</string>
+    <string name="widget_list_description">Your most active torrents with live progress</string>
     <string name="widget_no_data">Open the app to load torrents</string>
 
     <!-- Errors -->
