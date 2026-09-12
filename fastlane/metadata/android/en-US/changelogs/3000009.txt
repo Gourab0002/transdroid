@@ -1,0 +1,2 @@
+* Widgets are now interactive: pause or resume torrents right from the home screen, and refresh on demand
+* List widget rows show per-torrent speeds, ETA and status

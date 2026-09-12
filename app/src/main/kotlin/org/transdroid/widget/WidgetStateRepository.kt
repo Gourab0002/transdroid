@@ -36,11 +36,13 @@ private val Context.widgetDataStore by preferencesDataStore(name = "widget_state
 /** One row of the list widget; a trimmed-down torrent snapshot. */
 @Serializable
 data class WidgetTorrent(
+    val id: String = "",
     val name: String,
     val progress: Float,
     val status: TorrentStatus,
     val downloadRate: Long,
     val uploadRate: Long,
+    val etaSeconds: Long? = null,
 )
 
 data class WidgetState(
@@ -113,11 +115,13 @@ class WidgetStateRepository(private val context: Context) {
                 .take(MAX_LIST_ROWS)
                 .map {
                     WidgetTorrent(
+                        id = it.id,
                         name = it.name,
                         progress = it.displayProgress,
                         status = it.status,
                         downloadRate = it.downloadRate,
                         uploadRate = it.uploadRate,
+                        etaSeconds = it.etaSeconds,
                     )
                 },
         )

@@ -20,11 +20,15 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
@@ -39,6 +43,7 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.size
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
@@ -55,6 +60,7 @@ class TransdroidWidget : GlanceAppWidget() {
         val strings = WidgetStrings(
             appName = context.getString(R.string.app_name),
             noData = context.getString(R.string.widget_no_data),
+            refresh = context.getString(R.string.torrents_refresh),
         )
         provideContent {
             GlanceTheme {
@@ -63,7 +69,7 @@ class TransdroidWidget : GlanceAppWidget() {
         }
     }
 
-    private data class WidgetStrings(val appName: String, val noData: String)
+    private data class WidgetStrings(val appName: String, val noData: String, val refresh: String)
 
     @Composable
     private fun WidgetContent(state: WidgetState, strings: WidgetStrings) {
@@ -76,14 +82,26 @@ class TransdroidWidget : GlanceAppWidget() {
                 .padding(12.dp)
                 .clickable(actionStartActivity<MainActivity>()),
         ) {
-            Text(
-                text = state.serverName ?: strings.appName,
-                style = TextStyle(
-                    color = GlanceTheme.colors.primary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                ),
-            )
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = state.serverName ?: strings.appName,
+                    style = TextStyle(
+                        color = GlanceTheme.colors.primary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                    ),
+                    modifier = GlanceModifier.defaultWeight(),
+                )
+                Image(
+                    provider = ImageProvider(R.drawable.ic_widget_refresh),
+                    contentDescription = strings.refresh,
+                    colorFilter = ColorFilter.tint(GlanceTheme.colors.primary),
+                    modifier = GlanceModifier
+                        .size(26.dp)
+                        .padding(3.dp)
+                        .clickable(actionRunCallback<RefreshWidgetAction>()),
+                )
+            }
             Spacer(GlanceModifier.height(6.dp))
             if (state.updatedAtMillis == null) {
                 Text(
