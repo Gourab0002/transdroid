@@ -63,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -129,7 +130,7 @@ fun AddTorrentScreen(
         if (pickedFile != null) {
             submitting = true
             scope.launch {
-                val contents = withContext(Dispatchers.IO) { readTorrentFile(context, Uri.parse(pickedFile)) }
+                val contents = withContext(Dispatchers.IO) { readTorrentFile(context, pickedFile.toUri()) }
                 if (contents == null) {
                     submitting = false
                     fileReadFailed = true
@@ -239,7 +240,7 @@ fun AddTorrentScreen(
             } else {
                 AssistChip(
                     onClick = {},
-                    label = { Text(displayName(context, Uri.parse(pickedFile))) },
+                    label = { Text(displayName(context, pickedFile.toUri())) },
                     trailingIcon = {
                         IconButton(onClick = { fileUri = null }) {
                             Icon(Icons.Default.Close, contentDescription = stringResource(R.string.details_cancel))

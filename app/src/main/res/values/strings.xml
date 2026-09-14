@@ -7,7 +7,10 @@
     <string name="torrents_title">Torrents</string>
     <string name="torrents_empty">No torrents</string>
     <string name="torrents_select_one">Select a torrent</string>
-    <string name="torrents_selected">%1$d selected</string>
+    <plurals name="torrents_selected">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
     <string name="torrents_switch_server">Switch server</string>
     <string name="torrents_server_speeds">%1$s · ↓ %2$s ↑ %3$s</string>
     <string name="torrents_card_meta"> · %1$d%% · %2$s</string>
@@ -54,7 +57,6 @@
     <string name="details_cancel">Cancel</string>
     <string name="details_section_transfer">Transfer</string>
     <string name="details_section_files">Files</string>
-    <string name="details_progress">Progress</string>
     <string name="details_size">Size</string>
     <string name="details_downloaded">Downloaded</string>
     <string name="details_uploaded">Uploaded</string>
@@ -110,7 +112,6 @@
     <string name="add_paused">Add paused</string>
     <string name="add_paused_summary">Choose which files to download first, then start it from the details screen</string>
     <string name="add_button">Add to %1$s</string>
-    <string name="add_success">Torrent added</string>
     <string name="add_success_named">Torrent added: %1$s</string>
     <string name="add_invalid">Enter a magnet link or http(s) URL to a torrent file</string>
 
@@ -133,13 +134,15 @@
     <string name="search_provider">Indexer</string>
     <string name="search_no_providers">Add a Torznab indexer (Jackett or Prowlarr) in Settings to search</string>
     <string name="search_no_results">No results</string>
-    <string name="search_seeders">%1$d seeders · %2$d leechers</string>
+    <plurals name="search_seeders">
+        <item quantity="one">%1$d seeder · %2$d leechers</item>
+        <item quantity="other">%1$d seeders · %2$d leechers</item>
+    </plurals>
 
     <!-- Server settings -->
     <string name="settings_title">Settings</string>
     <string name="settings_servers">Servers</string>
     <string name="settings_add_server">Add server</string>
-    <string name="settings_active_server">Active</string>
     <string name="settings_server_summary">%1$s · %2$s:%3$d</string>
     <string name="settings_edit_server">Edit server</string>
     <string name="settings_new_server">New server</string>
@@ -164,7 +167,6 @@
     <string name="settings_widget_server_active">Same as in the app</string>
     <string name="settings_notify_rss">Notify for auto-downloaded RSS items</string>
     <string name="settings_update">App updates</string>
-    <string name="settings_update_checking">Checking for updates…</string>
     <string name="settings_update_none">You have the latest version</string>
     <string name="settings_update_available">Update available: %1$s</string>
     <string name="settings_update_open">Open release</string>
@@ -196,7 +198,10 @@
     <string name="settings_torznab_url_hint">http://host:9117/api/v2.0/indexers/all/results/torznab</string>
     <string name="settings_api_key">API key</string>
     <string name="settings_poll_interval">Refresh interval</string>
-    <string name="settings_poll_interval_value">%1$d seconds</string>
+    <plurals name="settings_poll_interval_value">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
     <string name="settings_discovery_title">Found on your network</string>
     <string name="settings_discovery_scanning">Scanning your local network…</string>
     <string name="settings_trust_cert">Trust this server\'s certificate…</string>

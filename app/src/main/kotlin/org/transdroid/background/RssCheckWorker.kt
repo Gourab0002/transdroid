@@ -75,11 +75,14 @@ class RssCheckWorker(
                     val url = item.torrentUrl ?: continue
                     try {
                         container.adapterFor(profile).addByUrl(url, AddOptions())
-                        addedTitles += item.title
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
+                        // Don't advance past a failed item: it stays above the cutoff
+                        // and is retried on the next run instead of silently skipped.
+                        continue
                     }
+                    addedTitles += item.title
                     newest = maxOf(newest, item.timestamp ?: newest)
                 }
                 container.profilesRepository.saveFeed(feed.copy(lastAutoDownloadTimestamp = newest))

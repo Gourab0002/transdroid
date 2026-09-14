@@ -70,10 +70,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.booleanResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -210,7 +212,7 @@ fun SettingsScreen(
                 var intervalMenuOpen by remember { mutableStateOf(false) }
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.settings_poll_interval)) },
-                    supportingContent = { Text(stringResource(R.string.settings_poll_interval_value, pollInterval)) },
+                    supportingContent = { Text(pluralStringResource(R.plurals.settings_poll_interval_value, pollInterval, pollInterval)) },
                     leadingContent = {
                         Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     },
@@ -219,7 +221,7 @@ fun SettingsScreen(
                 DropdownMenu(expanded = intervalMenuOpen, onDismissRequest = { intervalMenuOpen = false }) {
                     SettingsRepository.POLL_INTERVAL_OPTIONS.forEach { seconds ->
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.settings_poll_interval_value, seconds)) },
+                            text = { Text(pluralStringResource(R.plurals.settings_poll_interval_value, seconds, seconds)) },
                             leadingIcon = { RadioButton(selected = seconds == pollInterval, onClick = null) },
                             onClick = {
                                 viewModel.setPollInterval(seconds)
@@ -364,7 +366,7 @@ fun SettingsScreen(
                                     context.startActivity(
                                         android.content.Intent(
                                             android.content.Intent.ACTION_VIEW,
-                                            android.net.Uri.parse(update.htmlUrl),
+                                            update.htmlUrl.toUri(),
                                         ),
                                     )
                                 }) { Text(stringResource(R.string.settings_update_open)) }

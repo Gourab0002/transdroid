@@ -45,8 +45,7 @@ class UpdateChecker(private val httpClient: OkHttpClient) {
             val obj = json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
             val tag = obj["tag_name"]?.jsonPrimitive?.contentOrNull ?: return@withContext null
             val url = obj["html_url"]?.jsonPrimitive?.contentOrNull ?: return@withContext null
-            val normalized = tag.removePrefix("v")
-            if (normalized == currentVersionName) null else AppUpdate(tag = tag, htmlUrl = url)
+            if (!isNewerVersion(tag, currentVersionName)) null else AppUpdate(tag = tag, htmlUrl = url)
         }
     }
 
@@ -54,3 +53,29 @@ class UpdateChecker(private val httpClient: OkHttpClient) {
         const val LATEST_RELEASE = "https://api.github.com/repos/Gourab0002/transdroid/releases/latest"
     }
 }
+
+/**
+ * True when [latestTag] (e.g. "v1.2.0") names a newer release than [currentVersionName]
+ * (e.g. "1.0.0"). Compares numeric components so an older tag, a prerelease of the
+ * current version, or the current version itself never reads as an update. Tags without
+ * a leading version number fall back to plain inequality.
+ */
+internal fun isNewerVersion(latestTag: String, currentVersionName: String): Boolean {
+    val latest = parseVersion(latestTag)
+    val current = parseVersion(currentVersionName)
+    if (latest == null || current == null) {
+        return latestTag.removePrefix("v") != currentVersionName
+    }
+    val length = maxOf(latest.size, current.size)
+    for (i in 0 until length) {
+        val diff = (latest.getOrElse(i) { 0 }) - (current.getOrElse(i) { 0 })
+        if (diff != 0) return diff > 0
+    }
+    return false
+}
+
+private val LEADING_VERSION = Regex("""^v?(\d+(?:\.\d+)*)""")
+
+private fun parseVersion(tag: String): List<Int>? =
+    LEADING_VERSION.find(tag.trim())?.groupValues?.get(1)
+        ?.split('.')?.map { it.toIntOrNull() ?: return null }

@@ -79,6 +79,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.booleanResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -115,7 +116,7 @@ fun TorrentsScreen(
                 title = {
                     Column {
                         if (ui.selecting) {
-                            Text(stringResource(R.string.torrents_selected, ui.selectedIds.size))
+                            Text(pluralStringResource(R.plurals.torrents_selected, ui.selectedIds.size, ui.selectedIds.size))
                         } else {
                             Text(stringResource(R.string.torrents_title))
                         }
@@ -518,8 +519,8 @@ private fun ErrorBanner(message: String, onRetry: () -> Unit) {
 @Composable
 private fun WelcomeContent(
     onOpenSettings: () -> Unit,
-    readError: org.transdroid.data.ProfilesReadError? = null,
     modifier: Modifier = Modifier,
+    readError: org.transdroid.data.ProfilesReadError? = null,
 ) {
     val title = when (readError) {
         org.transdroid.data.ProfilesReadError.KEYSTORE_UNAVAILABLE ->

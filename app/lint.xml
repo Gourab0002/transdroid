@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Adaptive launcher icons must stay in mipmap-anydpi-v26: AAPT only accepts the
+         <adaptive-icon> root tag in a v26+ qualified folder, even when minSdk is already
+         26 or higher. -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+</lint>

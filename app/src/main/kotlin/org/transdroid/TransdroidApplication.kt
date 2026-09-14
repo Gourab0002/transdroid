@@ -48,7 +48,7 @@ class AppContainer(context: Context) {
     val httpClient = DaemonAdapterFactory.defaultHttpClient()
     val rssFetcher = RssFetcher(httpClient)
 
-    private var cachedAdapter: Pair<ServerProfile, DaemonAdapter>? = null
+    private val cachedAdapters = LinkedHashMap<String, Pair<ServerProfile, DaemonAdapter>>()
 
     /** The profile torrents are loaded from: the selected one, or the first configured. */
     val activeProfile: Flow<ServerProfile?> =
@@ -62,20 +62,36 @@ class AppContainer(context: Context) {
             profiles.firstOrNull { it.id == widgetId } ?: active
         }
 
-    /** Returns a (cached) adapter for [profile]; adapters keep session state like auth cookies. */
+    /**
+     * Returns a cached adapter for [profile]; adapters keep session state like auth
+     * cookies, so one entry per server avoids repeated logins when the UI and a
+     * background worker use different servers. Bounded: the least-recently-used
+     * server is dropped, and an entry is rebuilt when its profile was edited.
+     */
     @Synchronized
     fun adapterFor(profile: ServerProfile): DaemonAdapter {
-        cachedAdapter?.let { (cachedProfile, adapter) ->
-            if (cachedProfile == profile) return adapter
+        cachedAdapters.remove(profile.id)?.let { (cachedProfile, adapter) ->
+            if (cachedProfile == profile) {
+                // Re-insert to mark most-recently-used
+                cachedAdapters[profile.id] = cachedProfile to adapter
+                return adapter
+            }
+        }
+        if (cachedAdapters.size >= MAX_CACHED_ADAPTERS) {
+            cachedAdapters.entries.firstOrNull()?.let { cachedAdapters.remove(it.key) }
         }
         val adapter = DaemonAdapterFactory.create(profile.toDaemonConfig(), httpClient)
-        cachedAdapter = profile to adapter
+        cachedAdapters[profile.id] = profile to adapter
         return adapter
     }
 
     /** An uncached adapter for testing yet-unsaved connection settings. */
     fun adapterForTest(profile: ServerProfile): DaemonAdapter =
         DaemonAdapterFactory.create(profile.toDaemonConfig(), httpClient)
+
+    private companion object {
+        const val MAX_CACHED_ADAPTERS = 4
+    }
 }
 
 class TransdroidApplication : Application() {

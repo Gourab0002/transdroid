@@ -18,6 +18,7 @@ package org.transdroid.discovery
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkAddress
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
 import java.net.InetSocketAddress
@@ -46,16 +47,16 @@ class LanDiscovery(private val context: Context) {
         .readTimeout(2, TimeUnit.SECONDS)
         .build()
 
-    /** Empty when not on a local network (cellular/VPN-only) or nothing was found. */
+    /** Empty when not on a local network (cellular-only) or nothing was found. */
     suspend fun scan(): List<DiscoveredDaemon> = withContext(Dispatchers.IO) {
-        val prefix = localSubnetPrefix() ?: return@withContext emptyList()
+        val linkAddress = localLinkAddress() ?: return@withContext emptyList()
+        val targets = scanTargets(linkAddress.address as Inet4Address, linkAddress.prefixLength)
         val concurrency = Semaphore(CONCURRENT_SOCKETS)
         coroutineScope {
-            (1..254).flatMap { hostIndex ->
+            targets.flatMap { host ->
                 DaemonProbe.DEFAULT_PORTS.map { port ->
                     async {
                         concurrency.withPermit {
-                            val host = "$prefix$hostIndex"
                             if (isPortOpen(host, port)) DaemonProbe.probe(probeClient, host, port) else null
                         }
                     }
@@ -73,20 +74,17 @@ class LanDiscovery(private val context: Context) {
         false
     }
 
-    /** The /24 prefix ("192.168.1.") of the current Wi-Fi/Ethernet IPv4 address, if any. */
-    private fun localSubnetPrefix(): String? {
+    /** The device's own IPv4 link address on Wi-Fi, Ethernet or VPN, if any. */
+    private fun localLinkAddress(): LinkAddress? {
         val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return null
         val network = connectivity.activeNetwork ?: return null
         val capabilities = connectivity.getNetworkCapabilities(network) ?: return null
         val local = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
         if (!local) return null
-        val address = connectivity.getLinkProperties(network)?.linkAddresses
-            ?.map { it.address }
-            ?.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }
-            ?: return null
-        val bytes = address.address
-        return "${bytes[0].toUByte()}.${bytes[1].toUByte()}.${bytes[2].toUByte()}."
+        return connectivity.getLinkProperties(network)?.linkAddresses
+            ?.firstOrNull { it.address is Inet4Address && !it.address.isLoopbackAddress }
     }
 
     private companion object {
@@ -94,3 +92,37 @@ class LanDiscovery(private val context: Context) {
         const val CONCURRENT_SOCKETS = 96
     }
 }
+
+/**
+ * Host addresses to probe for [address]/[prefixLength]. Subnets between /24 and /30 are
+ * swept in full; anything larger (a /16 office LAN) would take far too long, and a /31
+ * or /32 assignment (typical for VPNs like Tailscale) describes no sweepable range at
+ * all — in both cases only the /24 around the device is covered. Capped defensively.
+ */
+internal fun scanTargets(address: Inet4Address, prefixLength: Int): List<String> {
+    val ip = address.toIntValue()
+    val hosts = if (prefixLength in 24..30) {
+        subnetHosts(ip, prefixLength)
+    } else {
+        subnetHosts(ip, 24)
+    }
+    return hosts.take(MAX_SCAN_TARGETS)
+}
+
+private const val MAX_SCAN_TARGETS = 1024
+
+private fun subnetHosts(ip: Int, prefixLength: Int): List<String> {
+    val mask = if (prefixLength == 0) 0 else (-1 shl (32 - prefixLength))
+    val network = ip and mask
+    val broadcast = network or mask.inv()
+    return ((network + 1) until broadcast).map { it.toIpString() }
+}
+
+private fun Inet4Address.toIntValue(): Int {
+    val b = address
+    return ((b[0].toInt() and 0xFF) shl 24) or ((b[1].toInt() and 0xFF) shl 16) or
+        ((b[2].toInt() and 0xFF) shl 8) or (b[3].toInt() and 0xFF)
+}
+
+private fun Int.toIpString(): String =
+    "${(this ushr 24) and 0xFF}.${(this ushr 16) and 0xFF}.${(this ushr 8) and 0xFF}.${this and 0xFF}"

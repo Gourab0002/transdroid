@@ -9,3 +9,6 @@ captures/
 keystore.properties
 *.keystore
 *.jks
+# Local release artifact staging (populated by release.yml / manual builds)
+dist/
+*.apk
