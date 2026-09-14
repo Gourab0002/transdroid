@@ -1,141 +1,110 @@
-<p align="center"><img src="fastlane/metadata/android/en-US/images/icon.png" width="128" alt="Transdroid app icon"></p>
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/icon.png" width="128" alt="Transdroid app icon">
+</p>
 
-Transdroid 3
-============
+<h1 align="center">Transdroid</h1>
 
-[www.transdroid.org](https://www.transdroid.org/) - [transdroid@2312.nl](mailto:transdroid@2312.nl)
+<p align="center">
+  Manage your torrents from your Android device.
+</p>
 
-Manage torrents from your Android device.
+<p align="center">
+  <a href="../../actions"><img src="../../actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="../../releases"><img src="https://img.shields.io/github/v/release/Gourab0002/transdroid?label=latest%20release" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License: GPLv3">
+</p>
 
-> **Branch notice** — `master` is **Transdroid 1.0**, a ground-up rewrite following the
-> [Transdroid 3 plan](transdroid3_plan.md). The final Transdroid 2 code is preserved at
-> the [`transdroid2-final`](../../tree/transdroid2-final) tag and receives no further
-> development. Signed APKs are on the [Releases](../../releases) page.
+<p align="center">
+  <a href="https://www.transdroid.org/">www.transdroid.org</a> ·
+  <a href="mailto:transdroid@2312.nl">transdroid@2312.nl</a>
+</p>
 
-What has been done so far
-=========================
+## Download
 
-This branch replaces the entire Transdroid 2 code base (Java, Apache HTTP legacy,
-AndroidAnnotations, ORMLite, XML layouts) with a new app built from scratch. Status by
-area:
+Get the signed APK from the [**Releases**](../../releases) page:
 
-* **Project foundations** — new Gradle Kotlin DSL build with a version catalog, minSdk 29
-  / targetSdk 36, the `full`/`lite` product flavor split carried over from v2, and a
-  GitHub Actions CI pipeline that runs all tests and lint on every push and uploads an
-  installable debug APK as a build artifact (see the
-  [Actions tab](../../actions), bottom of the latest run, artifact
-  `transdroid-full-debug`).
-* **Protocol layer** (plan Phases 1 and 4) — a new pure-JVM `:protocol` module defines one
-  normalized `DaemonAdapter` interface plus torrent/file models, with working adapters for
-  **Transmission** (JSON-RPC, 409 session-id handshake, basic auth), **qBittorrent**
-  (Web API v2 cookie auth, compatible with both 4.x `pause/resume` and 5.x `stop/start`
-  endpoints), **rTorrent** (XML-RPC over HTTP with a hardened minimal codec) and
-  **Deluge** (Web UI JSON-RPC with session re-authentication). All protocol behavior is
-  unit-tested against recorded fixture responses; no emulator or real daemon needed.
-* **App UI** (plan Phase 2 + Phase 3) — Jetpack Compose with Material 3 in the classic
-  grey-green Transdroid identity: torrent list with automatic 5-second refresh, status
-  filters and pull-to-refresh; torrent details with start/pause/remove (optionally
-  deleting data) and per-file progress; add-torrent by magnet link or URL, including
-  handling magnet links opened from other apps; server settings with a connection test
-  button. On tablets/foldables the list and details show side by side.
-* **Security** — server credentials are stored AES-256-GCM encrypted using a
-  hardware-backed Android Keystore key and are excluded from cloud backup and device
-  transfer; passwords never leave the device.
-* **Verified** — protocol and app unit tests pass, Android lint is clean, and debug plus
-  minified R8 release builds succeed for both flavors.
+- **Transdroid `full`** (`Transdroid-v*.apk`) — the complete app: search, RSS, widgets and all clients. Distributed via transdroid.org and (soon) F-Droid.
+- **Transdroid `lite`** (`Transdroid-lite-v*.apk`, a.k.a. Transdrone) — the Google Play variant with in-app search and RSS disabled.
 
-* **Search** (plan Phase 5) — in-app torrent search built as an extension point: a
-  `SearchProvider` interface in the protocol module with a **Torznab** implementation, so
-  one Jackett or Prowlarr endpoint unlocks hundreds of indexers. Providers (endpoint +
-  API key) are stored encrypted; results sort by seeders and send straight to the active
-  server. Gated to the `full` flavor via `search_available`.
-* **RSS feeds** — subscribe to torrent RSS/Atom feeds, see new items highlighted, and
-  send entries to your client with one tap. Feed URLs (which often embed private
-  passkeys) live in the same encrypted store as server credentials. `full` flavor only.
-* **Notifications** — an opt-in background check (WorkManager, ~15 min interval) that
-  notifies when torrents finish, with proper Android 13+ notification-permission
-  handling.
-* **Home screen widget** — a Glance widget with the active server's torrent counts and
-  total speeds, refreshed by both foreground use and the background check.
-* **More ways to add** — open or share magnet links, open `.torrent` files from file
-  managers and browsers, pick a `.torrent` file in-app, or paste a URL. Plus torrent
-  list sorting (date added, name, download speed, ratio).
-* **Self-signed HTTPS** — seedboxes and home servers with self-signed certificates are
-  supported securely: the app shows the server's certificate fingerprint and, once
-  accepted, pins exactly that certificate for that server (no "trust everything" toggle).
-* **Local network discovery** — adding a server automatically scans your Wi-Fi/Ethernet
-  subnet for Transmission, qBittorrent and Deluge daemons and offers what it finds with
-  one tap to fill in the connection details.
-* **Labels and file priorities** — labels/categories from all four clients appear as
-  filter chips and in the details view, and per-file download priorities can be changed
-  by tapping a file.
-* **Release pipeline** — tag-triggered GitHub Releases with signed APKs (signing via
-  repository secrets, unsigned fallback), `dependenciesInfo` and VCS metadata stripped
-  from APKs per F-Droid reproducible-build requirements, plus fastlane store metadata.
-* **Contributor docs** (plan Phase 6) — [CONTRIBUTING.md](CONTRIBUTING.md) documents the
-  build, the module layout and the adapter interface as the extension point for adding
-  more torrent clients.
+Requires **Android 10 (API 29) or newer**. Every push is also built by CI — a debug APK is attached to each run on the [Actions tab](../../actions) (artifact `transdroid-full-debug`).
 
-Not yet done: F-Droid inclusion (metadata is ready; capture store screenshots on a
-device and open the fdroiddata merge request), translations, and remaining Transdroid 2
-client adapters. See the [roadmap](transdroid3_plan.md#roadmap).
+> Upgrading from Transdroid 2? This is a ground-up rewrite (see [transdroid3_plan.md](transdroid3_plan.md)). The final v2 code is preserved at the [`transdroid2-final`](../../tree/transdroid2-final) tag and receives no further development.
 
-About the rewrite
-=================
+## Features
 
-Transdroid 3 is a fresh start on the same mission: manage your torrents from your Android
-device. The rewrite replaces the legacy Apache HTTP networking, AndroidAnnotations, ORMLite
-and XML layouts of Transdroid 2 with a modern, testable stack:
+**Core**
 
-* **Kotlin** everywhere, with coroutines and Flow for concurrency
-* **Jetpack Compose** with Material 3, themed with the classic Transdroid grey-green identity
-* **OkHttp** + kotlinx.serialization for the daemon protocols
-* A pure-JVM **`:protocol` module** containing all client adapters, unit-tested against
-  recorded fixture responses — no Android dependency, no emulator needed
-* **Encrypted server profiles**: connection credentials are stored AES-256-GCM encrypted
-  with a hardware-backed Android Keystore key, and excluded from device backups
-* **DataStore** for preferences; no SQL database, no ORM
-* minSdk 29 (Android 10) and up, edge-to-edge, adaptive two-pane layout on large screens
+- Torrent list with live auto-refresh, status filters, label chips, name filter, sorting and pull-to-refresh
+- Torrent details: start/pause, recheck, reannounce, force start, queue position, remove (optionally with data), per-file progress and priorities, trackers, peers, speed limits
+- Add torrents via magnet link, URL, `.torrent` file picker, file-manager intents or share intents from other apps
+- Server settings with connection test, per-server download directory, labels and global/alternative speed limits
+- Adaptive two-pane layout on tablets and foldables; Material 3 in the classic Transdroid grey-green
 
-Supported clients
-=================
+**Search & RSS** (`full` flavor only)
 
-| Client | Status |
+- In-app torrent search via the Torznab API — one Jackett or Prowlarr endpoint unlocks hundreds of indexers; results sort by seeders and send straight to the active server
+- RSS/Atom feed subscriptions with new-item highlighting and optional auto-download with title filters
+
+**Background & widgets**
+
+- Opt-in "torrent finished" notifications (WorkManager, ~15 min, Android 13+ permission aware)
+- Home screen widgets: server overview and most-active torrent list, refreshed by foreground use and background checks
+
+**Connectivity**
+
+- Local network discovery: adding a server scans your Wi-Fi/Ethernet subnet and offers what it finds
+- Self-signed HTTPS done securely: inspect the server's certificate fingerprint once, then pin exactly that certificate — no "trust everything" toggle
+- Custom HTTP headers per server (e.g. Cloudflare Access service tokens), access-portal detection with actionable errors
+
+## Supported clients
+
+| Client | Protocol | Notes |
+| --- | --- | --- |
+| Transmission | JSON-RPC | Session-id handshake, basic auth |
+| qBittorrent | Web API v2 | Works with 4.1+ and 5.x (`pause`/`resume` and `stop`/`start`) |
+| rTorrent | XML-RPC | e.g. `/RPC2` behind a web server or ruTorrent |
+| Deluge | Web UI JSON-RPC | 1.3 and 2.x, session re-authentication |
+
+More clients can return as community contributions — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Building
+
+```
+./gradlew :protocol:test                 # protocol unit tests (pure JVM, no emulator needed)
+./gradlew :app:testFullDebugUnitTest     # app unit tests
+./gradlew :app:lintFullDebug             # Android lint
+./gradlew :app:assembleFullDebug         # installable debug APK
+```
+
+Release builds (`assembleFullRelease` / `assembleRelease`) are minified with R8. To sign them, copy `keystore.properties.example` to `keystore.properties` (git-ignored) and fill in your keystore — or set the `KEYSTORE_BASE64` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD` repository secrets and cut a `v*` tag to publish a GitHub Release.
+
+## Project structure
+
+| Module | Contents |
 | --- | --- |
-| Transmission | ✅ Supported (RPC over JSON, session-id handshake, basic auth) |
-| qBittorrent | ✅ Supported (Web API v2, works with qBittorrent 4.1+ and 5.x) |
-| rTorrent | ✅ Supported (XML-RPC over HTTP, e.g. /RPC2 behind a web server or ruTorrent) |
-| Deluge | ✅ Supported (Web UI JSON-RPC, Deluge 1.3 and 2.x) |
+| `:protocol` | Pure-JVM library: one normalized `DaemonAdapter` interface, torrent/file models, Transmission / qBittorrent / rTorrent / Deluge adapters, Torznab search, RSS parsing, LAN probing — all unit-tested against recorded fixtures |
+| `:app` | The Android app: Compose UI, ViewModels, encrypted settings storage, workers, widgets |
 
-The remaining Transdroid 2 adapters are out of scope for the initial v3 release; community
-contributions can revive them once the adapter interface stabilizes — see
-[CONTRIBUTING.md](CONTRIBUTING.md) for how to add an adapter.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the module layout and how to add a torrent-client adapter.
 
-Building
-========
+## Security & privacy
 
-```
-./gradlew :protocol:test        # protocol layer unit tests (pure JVM)
-./gradlew :app:assembleFullDebug
-```
+- Server credentials, feed URLs (often containing private passkeys) and indexer API keys are stored **AES-256-GCM encrypted** with a hardware-backed Android Keystore key, and **excluded from cloud backup and device transfer** — passwords never leave the device.
+- Passphrase-encrypted settings backup export/import (PBKDF2 + AES-GCM) for moving between devices.
+- Self-signed certificates are pinned per server after explicit user approval; XML parsing is XXE-hardened.
+- Plain HTTP is allowed because many home daemons speak HTTP on the LAN — prefer HTTPS (or a reverse proxy) whenever your server leaves your network.
 
-Two product flavors exist, carried over from Transdroid 2: `full` (transdroid.org, F-Droid)
-and `lite` (Google Play). Feature differences are driven purely by flavor resources.
+## Roadmap
 
-Contributions
-=============
+- F-Droid inclusion (metadata is ready; store screenshots and the fdroiddata merge request are next)
+- Translations
+- More Transdroid 2 client adapters via community contributions
 
-Code and design contributions are very welcome.
-Please note that all code will be licensed in GNU GPLv3.
+## Credits
 
-Developed By
-============
+Designed and developed by [Eric Kok](mailto:eric@2312.nl) of [2312 development](https://2312.nl/). Contributions by various others (see commit log). Code and design contributions are very welcome — note that all code is licensed under the GNU GPLv3.
 
-Designed and developed by [Eric Kok](mailto:eric@2312.nl) of [2312 development](https://2312.nl/).
-Contributions by various others (see commit log).
-
-License
-=======
+## License
 
     Copyright 2010-2026 Eric Kok et al.
 
