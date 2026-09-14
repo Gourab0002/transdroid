@@ -20,11 +20,13 @@ import android.app.Application
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.transdroid.background.FinishedTorrentsWorker
+import org.transdroid.background.WidgetRefreshWorker
 import org.transdroid.data.ServerProfile
 import org.transdroid.discovery.LanDiscovery
 import org.transdroid.data.ServerProfilesRepository
@@ -77,8 +79,8 @@ class TransdroidApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-        // Re-arm the periodic finished-torrents check after updates/reboots; KEEP is idempotent
-        CoroutineScope(Dispatchers.Default).launch {
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            WidgetRefreshWorker.schedule(this@TransdroidApplication)
             if (container.settingsRepository.notifyFinished.first()) {
                 FinishedTorrentsWorker.schedule(this@TransdroidApplication)
             }

@@ -39,10 +39,13 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.transdroid.protocol.AddOptions
 import org.transdroid.protocol.DaemonAdapter
+import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.DaemonConfig
 import org.transdroid.protocol.DaemonException
 import org.transdroid.protocol.FilePriority
+import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.internal.executeOnIo
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentFile
@@ -66,6 +69,8 @@ class TransmissionAdapter(
     @Volatile
     private var sessionId: String? = null
 
+    override val capabilities: Set<DaemonCapability> = CAPABILITIES
+
     override suspend fun testConnection(): String {
         val arguments = request("session-get")
         val version = arguments["version"]?.jsonPrimitive?.contentOrNull ?: "unknown"
@@ -82,17 +87,25 @@ class TransmissionAdapter(
         return torrents.map { parseTorrent(it.jsonObject) }
     }
 
-    override suspend fun addByUrl(url: String, startPaused: Boolean) {
+    override suspend fun addByUrl(url: String, options: AddOptions) {
         request("torrent-add") {
             put("filename", url)
-            if (startPaused) put("paused", true)
+            putAddOptions(options)
         }
     }
 
-    override suspend fun addByFile(fileName: String, contents: ByteArray, startPaused: Boolean) {
+    override suspend fun addByFile(fileName: String, contents: ByteArray, options: AddOptions) {
         request("torrent-add") {
             put("metainfo", Base64.getEncoder().encodeToString(contents))
-            if (startPaused) put("paused", true)
+            putAddOptions(options)
+        }
+    }
+
+    private fun kotlinx.serialization.json.JsonObjectBuilder.putAddOptions(options: AddOptions) {
+        if (options.startPaused) put("paused", true)
+        options.downloadDir?.takeIf { it.isNotBlank() }?.let { put("download-dir", it) }
+        if (options.labels.isNotEmpty()) {
+            put("labels", buildJsonArray { options.labels.forEach { add(it) } })
         }
     }
 
@@ -104,11 +117,131 @@ class TransmissionAdapter(
         request("torrent-stop") { putIds(torrentId) }
     }
 
+    override suspend fun start(torrentIds: List<String>) {
+        if (torrentIds.isEmpty()) return
+        request("torrent-start") { putIds(torrentIds) }
+    }
+
+    override suspend fun pause(torrentIds: List<String>) {
+        if (torrentIds.isEmpty()) return
+        request("torrent-stop") { putIds(torrentIds) }
+    }
+
     override suspend fun remove(torrentId: String, deleteData: Boolean) {
         request("torrent-remove") {
             putIds(torrentId)
             put("delete-local-data", deleteData)
         }
+    }
+
+    override suspend fun remove(torrentIds: List<String>, deleteData: Boolean) {
+        if (torrentIds.isEmpty()) return
+        request("torrent-remove") {
+            putIds(torrentIds)
+            put("delete-local-data", deleteData)
+        }
+    }
+
+    override suspend fun setLabels(torrentId: String, labels: List<String>) {
+        request("torrent-set") {
+            putIds(torrentId)
+            put("labels", buildJsonArray { labels.forEach { add(it) } })
+        }
+    }
+
+    override suspend fun setLocation(torrentId: String, path: String, moveData: Boolean) {
+        request("torrent-set-location") {
+            putIds(torrentId)
+            put("location", path)
+            put("move", moveData)
+        }
+    }
+
+    override suspend fun recheck(torrentId: String) {
+        request("torrent-verify") { putIds(torrentId) }
+    }
+
+    override suspend fun reannounce(torrentId: String) {
+        request("torrent-reannounce") { putIds(torrentId) }
+    }
+
+    override suspend fun setTorrentSpeedLimits(
+        torrentId: String,
+        downloadBytesPerSec: Long?,
+        uploadBytesPerSec: Long?,
+    ) {
+        request("torrent-set") {
+            putIds(torrentId)
+            downloadBytesPerSec?.let { bytes ->
+                if (bytes <= 0) {
+                    put("downloadLimited", false)
+                } else {
+                    put("downloadLimited", true)
+                    put("downloadLimit", (bytes / 1000).coerceAtLeast(1))
+                }
+            }
+            uploadBytesPerSec?.let { bytes ->
+                if (bytes <= 0) {
+                    put("uploadLimited", false)
+                } else {
+                    put("uploadLimited", true)
+                    put("uploadLimit", (bytes / 1000).coerceAtLeast(1))
+                }
+            }
+        }
+    }
+
+    override suspend fun setGlobalSpeedLimits(downloadBytesPerSec: Long?, uploadBytesPerSec: Long?) {
+        request("session-set") {
+            downloadBytesPerSec?.let { bytes ->
+                if (bytes <= 0) {
+                    put("speed-limit-down-enabled", false)
+                } else {
+                    put("speed-limit-down-enabled", true)
+                    put("speed-limit-down", (bytes / 1000).coerceAtLeast(1))
+                }
+            }
+            uploadBytesPerSec?.let { bytes ->
+                if (bytes <= 0) {
+                    put("speed-limit-up-enabled", false)
+                } else {
+                    put("speed-limit-up-enabled", true)
+                    put("speed-limit-up", (bytes / 1000).coerceAtLeast(1))
+                }
+            }
+        }
+    }
+
+    override suspend fun setAltSpeedEnabled(enabled: Boolean) {
+        request("session-set") { put("alt-speed-enabled", enabled) }
+    }
+
+    override suspend fun sessionStats(): SessionStats {
+        val session = request("session-get")
+        val stats = request("session-stats")
+        val downloadDir = session["download-dir"]?.jsonPrimitive?.contentOrNull
+        val free = try {
+            downloadDir?.let { dir ->
+                request("free-space") { put("path", dir) }["size-bytes"]?.jsonPrimitive?.long
+            }
+        } catch (e: DaemonException) {
+            null
+        }
+        fun kbps(enabledKey: String, valueKey: String): Long? {
+            val enabled = session[enabledKey]?.jsonPrimitive?.contentOrNull == "true"
+            if (!enabled) return 0L
+            val kb = session[valueKey]?.jsonPrimitive?.long ?: return 0L
+            return kb * 1000
+        }
+        return SessionStats(
+            downloadRate = stats["downloadSpeed"]?.jsonPrimitive?.long ?: 0L,
+            uploadRate = stats["uploadSpeed"]?.jsonPrimitive?.long ?: 0L,
+            downloadLimitBytesPerSec = kbps("speed-limit-down-enabled", "speed-limit-down"),
+            uploadLimitBytesPerSec = kbps("speed-limit-up-enabled", "speed-limit-up"),
+            altSpeedEnabled = session["alt-speed-enabled"]?.jsonPrimitive?.contentOrNull == "true",
+            freeSpaceBytes = free,
+            downloadDir = downloadDir,
+        )
     }
 
     override suspend fun listFiles(torrentId: String): List<TorrentFile> {
@@ -126,9 +259,9 @@ class TransmissionAdapter(
             val wanted = stat?.get("wanted")?.jsonPrimitive?.contentOrNull != "false"
             val priority = when {
                 !wanted -> FilePriority.OFF
-                else -> when (stat?.get("priority")?.jsonPrimitive?.contentOrNull) {
-                    "-1" -> FilePriority.LOW
-                    "1" -> FilePriority.HIGH
+                else -> when (stat?.get("priority")?.jsonPrimitive?.intOrNull) {
+                    -1 -> FilePriority.LOW
+                    1 -> FilePriority.HIGH
                     else -> FilePriority.NORMAL
                 }
             }
@@ -161,9 +294,17 @@ class TransmissionAdapter(
     }
 
     private fun kotlinx.serialization.json.JsonObjectBuilder.putIds(torrentId: String) {
-        val id = torrentId.toIntOrNull()
-            ?: throw DaemonException.UnexpectedResponse("Not a Transmission torrent id: $torrentId")
-        put("ids", buildJsonArray { add(id) })
+        putIds(listOf(torrentId))
+    }
+
+    private fun kotlinx.serialization.json.JsonObjectBuilder.putIds(torrentIds: List<String>) {
+        put("ids", buildJsonArray {
+            torrentIds.forEach { torrentId ->
+                val id = torrentId.toIntOrNull()
+                    ?: throw DaemonException.UnexpectedResponse("Not a Transmission torrent id: $torrentId")
+                add(id)
+            }
+        })
     }
 
     /** Sends one RPC request, retrying once after a 409 session-id challenge. */
@@ -273,6 +414,19 @@ class TransmissionAdapter(
 
     private companion object {
         const val SESSION_ID_HEADER = "X-Transmission-Session-Id"
+
+        val CAPABILITIES = setOf(
+            DaemonCapability.DELETE_DATA,
+            DaemonCapability.SET_LABELS,
+            DaemonCapability.SET_LOCATION,
+            DaemonCapability.RECHECK,
+            DaemonCapability.REANNOUNCE,
+            DaemonCapability.TORRENT_SPEED_LIMITS,
+            DaemonCapability.GLOBAL_SPEED_LIMITS,
+            DaemonCapability.ALT_SPEED,
+            DaemonCapability.SESSION_STATS,
+            DaemonCapability.ADD_OPTIONS,
+        )
 
         val TORRENT_FIELDS = listOf(
             "id", "name", "status", "percentDone", "rateDownload", "rateUpload", "eta",

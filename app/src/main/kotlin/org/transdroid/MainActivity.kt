@@ -8,7 +8,7 @@
  *
  * Transdroid is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * MERCHANTABILITY or PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
@@ -17,6 +17,8 @@
 package org.transdroid
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -69,13 +71,19 @@ class MainActivity : ComponentActivity() {
 
     /** Pulls a magnet link, torrent URL or .torrent content URI out of VIEW/SEND intents. */
     private fun extractTorrentUrl(intent: Intent?): String? = when (intent?.action) {
-        Intent.ACTION_VIEW -> intent.dataString?.takeIf {
-            it.startsWith("magnet:") || it.startsWith("content:") || it.startsWith("file:")
-        }
-        Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()?.takeIf {
-            it.startsWith("magnet:") || it.startsWith("http://") || it.startsWith("https://")
-        }
+        Intent.ACTION_VIEW -> IncomingTorrent.fromView(intent.dataString)
+        Intent.ACTION_SEND -> IncomingTorrent.fromSend(
+            extraText = intent.getStringExtra(Intent.EXTRA_TEXT),
+            extraStreamUri = extraStreamUri(intent)?.toString(),
+        )
         else -> null
+    }
+
+    private fun extraStreamUri(intent: Intent): Uri? = if (Build.VERSION.SDK_INT >= 33) {
+        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        intent.getParcelableExtra(Intent.EXTRA_STREAM)
     }
 
     private companion object {

@@ -1,0 +1,1 @@
+Foreground refresh now continues on torrent details. Open http(s) .torrent links and shared files. Switch servers from the list toolbar. Recheck, reannounce, labels and location. Multi-select. Safer backups and encrypted-store recovery. Independent widget refresh.

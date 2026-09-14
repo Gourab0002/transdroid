@@ -19,6 +19,9 @@ package org.transdroid.ui
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -68,9 +71,19 @@ fun TransdroidApp(
     val rssViewModel: RssViewModel = viewModel(factory = RssViewModel.Factory)
     val searchViewModel: SearchViewModel = viewModel(factory = SearchViewModel.Factory)
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            torrentsViewModel.pollLoop()
+        }
+    }
+
     LaunchedEffect(pendingTorrentUrl) {
         if (pendingTorrentUrl != null) {
-            navController.navigate(Routes.add(pendingTorrentUrl))
+            navController.navigate(Routes.add(pendingTorrentUrl)) {
+                popUpTo(Routes.TORRENTS)
+                launchSingleTop = true
+            }
             onPendingTorrentUrlConsumed()
         }
     }

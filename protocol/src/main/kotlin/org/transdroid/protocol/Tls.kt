@@ -50,7 +50,7 @@ object Tls {
      * certificate bypass the disabled hostname check and MITM the connection.)
      */
     fun clientWithPinnedCertificate(base: okhttp3.OkHttpClient, certSha256: String): okhttp3.OkHttpClient {
-        val trustManager = PinnedTrustManager(certSha256.lowercase())
+        val trustManager = PinnedTrustManager(normalizeFingerprint(certSha256))
         val sslContext = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trustManager), null) }
         return base.newBuilder()
             .sslSocketFactory(sslContext.socketFactory, trustManager)
@@ -94,6 +94,10 @@ object Tls {
 
     internal fun sha256Hex(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    /** Strips colons/spaces so a pasted `AB:CD:…` fingerprint still matches. */
+    internal fun normalizeFingerprint(value: String): String =
+        value.lowercase().filter { it in '0'..'9' || it in 'a'..'f' }
 
     private const val CONNECT_TIMEOUT_MS = 7_000
 }

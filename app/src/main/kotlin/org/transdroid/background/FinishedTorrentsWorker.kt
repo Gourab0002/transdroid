@@ -58,8 +58,7 @@ class FinishedTorrentsWorker(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Server unreachable right now; try again on the next periodic run
-            return Result.success()
+            return Result.retry()
         }
 
         container.widgetStateRepository.update(profile.displayName, torrents)

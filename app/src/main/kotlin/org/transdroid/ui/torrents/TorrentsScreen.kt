@@ -16,6 +16,8 @@
  */
 package org.transdroid.ui.torrents
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,11 +38,15 @@ import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -63,7 +69,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,10 +79,7 @@ import androidx.compose.ui.res.booleanResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.repeatOnLifecycle
 import org.transdroid.R
 import org.transdroid.protocol.Torrent
 import org.transdroid.ui.message
@@ -104,27 +106,27 @@ fun TorrentsScreen(
     val rssAvailable = booleanResource(R.bool.rss_available)
     val searchAvailable = booleanResource(R.bool.search_available)
 
-    // Poll the daemon while this screen is started; stops automatically when backgrounded
-    val lifecycleOwner = LocalLifecycleOwner.current
-    LaunchedEffect(lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            viewModel.pollLoop()
-        }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text(stringResource(R.string.torrents_title))
+                        if (ui.selecting) {
+                            Text(stringResource(R.string.torrents_selected, ui.selectedIds.size))
+                        } else {
+                            Text(stringResource(R.string.torrents_title))
+                        }
                         ui.activeProfile?.let { profile ->
                             val transferring = ui.hasLoaded &&
                                 (ui.totalDownloadRate > 0 || ui.totalUploadRate > 0)
                             Text(
                                 if (transferring) {
-                                    "${profile.displayName} · ↓ ${formatSpeed(ui.totalDownloadRate)} " +
-                                        "↑ ${formatSpeed(ui.totalUploadRate)}"
+                                    stringResource(
+                                        R.string.torrents_server_speeds,
+                                        profile.displayName,
+                                        formatSpeed(ui.totalDownloadRate),
+                                        formatSpeed(ui.totalUploadRate),
+                                    )
                                 } else {
                                     profile.displayName
                                 },
@@ -135,19 +137,41 @@ fun TorrentsScreen(
                     }
                 },
                 actions = {
-                    if (searchAvailable) {
-                        IconButton(onClick = onOpenSearch) {
-                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.search_title))
+                    if (ui.selecting) {
+                        IconButton(onClick = { viewModel.startSelected() }) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.details_start))
                         }
-                    }
-                    if (rssAvailable) {
-                        IconButton(onClick = onOpenRss) {
-                            Icon(Icons.Default.RssFeed, contentDescription = stringResource(R.string.rss_title))
+                        IconButton(onClick = { viewModel.pauseSelected() }) {
+                            Icon(Icons.Default.Pause, contentDescription = stringResource(R.string.details_pause))
                         }
-                    }
-                    SortMenuButton(current = ui.sort, onSelect = { viewModel.setSort(it) })
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.torrents_settings))
+                        IconButton(onClick = { viewModel.removeSelected(deleteData = false) }) {
+                            Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.details_remove))
+                        }
+                        IconButton(onClick = { viewModel.clearSelection() }) {
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.details_cancel))
+                        }
+                    } else {
+                        if (ui.profiles.size > 1) {
+                            ServerSwitcher(
+                                profiles = ui.profiles,
+                                activeId = ui.activeProfile?.id,
+                                onSelect = { viewModel.setActiveServer(it) },
+                            )
+                        }
+                        if (searchAvailable) {
+                            IconButton(onClick = onOpenSearch) {
+                                Icon(Icons.Default.Search, contentDescription = stringResource(R.string.search_title))
+                            }
+                        }
+                        if (rssAvailable) {
+                            IconButton(onClick = onOpenRss) {
+                                Icon(Icons.Default.RssFeed, contentDescription = stringResource(R.string.rss_title))
+                            }
+                        }
+                        SortMenuButton(current = ui.sort, onSelect = { viewModel.setSort(it) })
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.torrents_settings))
+                        }
                     }
                 },
             )
@@ -166,7 +190,11 @@ fun TorrentsScreen(
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
                 }
                 ui.activeProfile == null -> {
-                    WelcomeContent(onOpenSettings = onOpenSettings, modifier = Modifier.align(Alignment.Center))
+                    WelcomeContent(
+                        onOpenSettings = onOpenSettings,
+                        readError = ui.profilesReadError,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
                 }
                 useTwoPane -> {
                     Row(Modifier.fillMaxSize()) {
@@ -180,7 +208,7 @@ fun TorrentsScreen(
                                 TorrentDetailsContent(viewModel = viewModel, torrent = selected)
                             } else {
                                 Text(
-                                    stringResource(R.string.torrents_empty),
+                                    stringResource(R.string.torrents_select_one),
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.align(Alignment.Center),
@@ -299,8 +327,12 @@ private fun TorrentListContent(
                     items(ui.visibleTorrents, key = { it.id }) { torrent ->
                         TorrentCard(
                             torrent = torrent,
-                            selected = torrent.id == ui.selectedTorrentId,
-                            onClick = { onOpenDetails(torrent.id) },
+                            selected = torrent.id == ui.selectedTorrentId || torrent.id in ui.selectedIds,
+                            onClick = {
+                                if (ui.selecting) viewModel.toggleSelection(torrent.id)
+                                else onOpenDetails(torrent.id)
+                            },
+                            onLongClick = { viewModel.toggleSelection(torrent.id) },
                         )
                     }
                 }
@@ -353,15 +385,22 @@ private fun TorrentFilter.label(): String = stringResource(
 )
 
 @Composable
-private fun TorrentCard(torrent: Torrent, selected: Boolean, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun TorrentCard(
+    torrent: Torrent,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Card(
-        onClick = onClick,
         colors = if (selected) {
             CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
         } else {
             CardDefaults.cardColors()
         },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(
@@ -384,14 +423,22 @@ private fun TorrentCard(torrent: Torrent, selected: Boolean, onClick: () -> Unit
                     color = torrent.status.accentColor,
                 )
                 Text(
-                    " · ${(torrent.displayProgress * 100).toInt()}% · ${formatBytes(torrent.sizeBytes)}",
+                    stringResource(
+                        R.string.torrents_card_meta,
+                        (torrent.displayProgress * 100).toInt(),
+                        formatBytes(torrent.sizeBytes),
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.weight(1f))
                 if (torrent.status.isActive) {
                     Text(
-                        "↓ ${formatSpeed(torrent.downloadRate)}  ↑ ${formatSpeed(torrent.uploadRate)}",
+                        stringResource(
+                            R.string.torrents_card_speeds,
+                            formatSpeed(torrent.downloadRate),
+                            formatSpeed(torrent.uploadRate),
+                        ),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -438,7 +485,25 @@ private fun ErrorBanner(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun WelcomeContent(onOpenSettings: () -> Unit, modifier: Modifier = Modifier) {
+private fun WelcomeContent(
+    onOpenSettings: () -> Unit,
+    readError: org.transdroid.data.ProfilesReadError? = null,
+    modifier: Modifier = Modifier,
+) {
+    val title = when (readError) {
+        org.transdroid.data.ProfilesReadError.KEYSTORE_UNAVAILABLE ->
+            stringResource(R.string.profiles_locked_title)
+        org.transdroid.data.ProfilesReadError.DECRYPT_FAILED ->
+            stringResource(R.string.profiles_decrypt_title)
+        null -> stringResource(R.string.torrents_no_server_title)
+    }
+    val message = when (readError) {
+        org.transdroid.data.ProfilesReadError.KEYSTORE_UNAVAILABLE ->
+            stringResource(R.string.profiles_locked_message)
+        org.transdroid.data.ProfilesReadError.DECRYPT_FAILED ->
+            stringResource(R.string.profiles_decrypt_message)
+        null -> stringResource(R.string.torrents_no_server_message)
+    }
     Column(modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(
             Icons.Default.Dns,
@@ -447,16 +512,40 @@ private fun WelcomeContent(onOpenSettings: () -> Unit, modifier: Modifier = Modi
             modifier = Modifier.width(56.dp).height(56.dp),
         )
         Spacer(Modifier.height(16.dp))
-        Text(stringResource(R.string.torrents_no_server_title), style = MaterialTheme.typography.headlineSmall)
+        Text(title, style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(8.dp))
         Text(
-            stringResource(R.string.torrents_no_server_message),
+            message,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
         Button(onClick = onOpenSettings) {
             Text(stringResource(R.string.torrents_no_server_button))
+        }
+    }
+}
+
+@Composable
+private fun ServerSwitcher(
+    profiles: List<org.transdroid.data.ServerProfile>,
+    activeId: String?,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    IconButton(onClick = { expanded = true }) {
+        Icon(Icons.Default.SwapHoriz, contentDescription = stringResource(R.string.torrents_switch_server))
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        profiles.forEach { profile ->
+            DropdownMenuItem(
+                text = { Text(profile.displayName) },
+                leadingIcon = { RadioButton(selected = profile.id == activeId, onClick = null) },
+                onClick = {
+                    onSelect(profile.id)
+                    expanded = false
+                },
+            )
         }
     }
 }

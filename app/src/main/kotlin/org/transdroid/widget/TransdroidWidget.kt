@@ -61,6 +61,14 @@ class TransdroidWidget : GlanceAppWidget() {
             appName = context.getString(R.string.app_name),
             noData = context.getString(R.string.widget_no_data),
             refresh = context.getString(R.string.torrents_refresh),
+            down = context.getString(R.string.widget_stat_down, state.downloadingCount),
+            up = context.getString(R.string.widget_stat_up, state.seedingCount),
+            paused = context.getString(R.string.widget_stat_paused, state.pausedCount),
+            speeds = context.getString(
+                R.string.torrents_card_speeds,
+                formatSpeed(state.downloadRate),
+                formatSpeed(state.uploadRate),
+            ),
         )
         provideContent {
             GlanceTheme {
@@ -69,7 +77,15 @@ class TransdroidWidget : GlanceAppWidget() {
         }
     }
 
-    private data class WidgetStrings(val appName: String, val noData: String, val refresh: String)
+    private data class WidgetStrings(
+        val appName: String,
+        val noData: String,
+        val refresh: String,
+        val down: String,
+        val up: String,
+        val paused: String,
+        val speeds: String,
+    )
 
     @Composable
     private fun WidgetContent(state: WidgetState, strings: WidgetStrings) {
@@ -110,13 +126,13 @@ class TransdroidWidget : GlanceAppWidget() {
                 )
             } else {
                 Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Stat("↓ ${state.downloadingCount}")
-                    Stat("↑ ${state.seedingCount}")
-                    Stat("⏸ ${state.pausedCount}")
+                    Stat(strings.down)
+                    Stat(strings.up)
+                    Stat(strings.paused)
                 }
                 Spacer(GlanceModifier.height(4.dp))
                 Text(
-                    text = "↓ ${formatSpeed(state.downloadRate)}   ↑ ${formatSpeed(state.uploadRate)}",
+                    text = strings.speeds,
                     style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 13.sp),
                 )
             }

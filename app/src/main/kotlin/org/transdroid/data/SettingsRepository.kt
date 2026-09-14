@@ -34,6 +34,8 @@ class SettingsRepository(private val context: Context) {
     private val activeServerKey = stringPreferencesKey("active_server_id")
     private val notifyFinishedKey = booleanPreferencesKey("notify_finished")
     private val pollIntervalKey = intPreferencesKey("poll_interval_seconds")
+    private val torrentFilterKey = stringPreferencesKey("torrent_filter")
+    private val torrentSortKey = stringPreferencesKey("torrent_sort")
 
     val activeServerId: Flow<String?> = context.settingsDataStore.data.map { it[activeServerKey] }
 
@@ -64,6 +66,18 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setUnfinishedTorrentIds(profileId: String, ids: Set<String>) {
         context.settingsDataStore.edit { it[unfinishedKey(profileId)] = ids }
+    }
+
+    val torrentFilter: Flow<String> = context.settingsDataStore.data.map { it[torrentFilterKey] ?: "ALL" }
+
+    suspend fun setTorrentFilter(filter: String) {
+        context.settingsDataStore.edit { it[torrentFilterKey] = filter }
+    }
+
+    val torrentSort: Flow<String> = context.settingsDataStore.data.map { it[torrentSortKey] ?: "DATE_ADDED" }
+
+    suspend fun setTorrentSort(sort: String) {
+        context.settingsDataStore.edit { it[torrentSortKey] = sort }
     }
 
     private fun unfinishedKey(profileId: String) = stringSetPreferencesKey("unfinished_ids_$profileId")

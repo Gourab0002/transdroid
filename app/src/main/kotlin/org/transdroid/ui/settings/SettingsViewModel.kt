@@ -24,6 +24,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import java.util.UUID
 import javax.crypto.AEADBadTagException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -105,6 +106,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             _testState.value = try {
                 TestState.Success(container.adapterForTest(profile).testConnection())
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 TestState.Failure(e.toUiError(profile.host))
             }
@@ -125,6 +128,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             _certificateState.value = try {
                 CertificateState.Fetched(Tls.fetchCertificate(host, port))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 CertificateState.Failed(e.toUiError(host))
             }
@@ -145,6 +150,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             val found = try {
                 container.lanDiscovery.scan()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 emptyList()
             }
@@ -189,17 +196,36 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** Held between encrypting a backup and the document-picker callback; not in instance state. */
+    var pendingBackupBytes: ByteArray? = null
+        private set
+
+    fun takePendingBackup(): ByteArray? = pendingBackupBytes.also { pendingBackupBytes = null }
+
     /** Serializes and encrypts the whole settings store with the given passphrase. */
-    fun createBackup(passphrase: String, onReady: (ByteArray) -> Unit) {
+    fun createBackup(passphrase: String, onReady: (Boolean) -> Unit) {
         viewModelScope.launch {
-            val data = container.profilesRepository.currentData()
-            val bytes = withContext(Dispatchers.Default) {
-                BackupCrypto.encrypt(
-                    backupJson.encodeToString(ProfilesData.serializer(), data).encodeToByteArray(),
-                    passphrase.toCharArray(),
-                )
+            try {
+                val data = container.profilesRepository.currentData()
+                val chars = passphrase.toCharArray()
+                val bytes = try {
+                    withContext(Dispatchers.Default) {
+                        BackupCrypto.encrypt(
+                            backupJson.encodeToString(ProfilesData.serializer(), data).encodeToByteArray(),
+                            chars,
+                        )
+                    }
+                } finally {
+                    chars.fill('\u0000')
+                }
+                pendingBackupBytes = bytes
+                onReady(true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                pendingBackupBytes = null
+                onReady(false)
             }
-            onReady(bytes)
         }
     }
 
@@ -217,6 +243,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                     container.settingsRepository.setActiveServer(data.profiles.firstOrNull()?.id)
                 }
                 RestoreResult.Success(data.profiles.size)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: AEADBadTagException) {
                 RestoreResult.WrongPassphrase
             } catch (e: Exception) {

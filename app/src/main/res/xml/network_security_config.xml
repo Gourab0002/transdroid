@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is required: many home daemons speak HTTP on the LAN. Trust remains the
+  system CA store; self-signed HTTPS is handled per-server via certificate pinning,
+  not by disabling TLS validation here.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

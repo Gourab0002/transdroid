@@ -23,6 +23,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -62,7 +63,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -101,20 +101,16 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var showExportDialog by remember { mutableStateOf(false) }
-    // Saveable: the document picker can recreate the activity before delivering the uri
-    var pendingBackup by rememberSaveable { mutableStateOf<ByteArray?>(null) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
     val exportWrittenMessage = stringResource(R.string.backup_export_done)
     val exportFailedMessage = stringResource(R.string.backup_export_failed)
     val restoreWrongPassphrase = stringResource(R.string.backup_wrong_passphrase)
     val restoreInvalid = stringResource(R.string.backup_invalid_file)
-    val restoredTemplate = stringResource(R.string.backup_restored)
 
     val exportCreator = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
-        val bytes = pendingBackup
-        pendingBackup = null
+        val bytes = viewModel.takePendingBackup()
         if (uri != null) {
             scope.launch {
                 val ok = bytes != null && withContext(Dispatchers.IO) {
@@ -136,9 +132,7 @@ fun SettingsScreen(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        // Enable regardless; without permission the worker simply cannot post, and the
-        // system settings remain the source of truth the user controls.
-        viewModel.setNotifyFinished(context, true)
+        viewModel.setNotifyFinished(context, granted)
     }
 
     Scaffold(
@@ -169,7 +163,14 @@ fun SettingsScreen(
                 ListItem(
                     headlineContent = { Text(profile.displayName) },
                     supportingContent = {
-                        Text("${profile.type.name.lowercase().replaceFirstChar { it.uppercase() }} · ${profile.host}:${profile.port}")
+                        Text(
+                            stringResource(
+                                R.string.settings_server_summary,
+                                stringResource(profile.type.displayNameRes()),
+                                profile.host,
+                                profile.port,
+                            )
+                        )
                     },
                     leadingContent = {
                         Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -318,9 +319,9 @@ fun SettingsScreen(
             onDismiss = { showExportDialog = false },
             onConfirm = { passphrase ->
                 showExportDialog = false
-                viewModel.createBackup(passphrase) { bytes ->
-                    pendingBackup = bytes
-                    exportCreator.launch("transdroid-backup.tdbk")
+                viewModel.createBackup(passphrase) { ok ->
+                    if (ok) exportCreator.launch("transdroid-backup.tdbk")
+                    else scope.launch { snackbarHostState.showSnackbar(exportFailedMessage) }
                 }
             },
         )
@@ -337,12 +338,24 @@ fun SettingsScreen(
                 scope.launch {
                     val bytes = withContext(Dispatchers.IO) {
                         try {
-                            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            context.contentResolver.openInputStream(uri)?.use { stream ->
+                                val output = java.io.ByteArrayOutputStream()
+                                val buffer = ByteArray(64 * 1024)
+                                var total = 0
+                                while (true) {
+                                    val read = stream.read(buffer)
+                                    if (read < 0) break
+                                    total += read
+                                    if (total > MAX_BACKUP_BYTES) return@use null
+                                    output.write(buffer, 0, read)
+                                }
+                                output.toByteArray()
+                            }
                         } catch (e: Exception) {
                             null
                         }
                     }
-                    if (bytes == null || bytes.size > MAX_BACKUP_BYTES) {
+                    if (bytes == null) {
                         snackbarHostState.showSnackbar(restoreInvalid)
                         return@launch
                     }
@@ -351,7 +364,11 @@ fun SettingsScreen(
                             snackbarHostState.showSnackbar(
                                 when (result) {
                                     is SettingsViewModel.RestoreResult.Success ->
-                                        String.format(restoredTemplate, result.serverCount)
+                                        context.resources.getQuantityString(
+                                            R.plurals.backup_restored,
+                                            result.serverCount,
+                                            result.serverCount,
+                                        )
                                     SettingsViewModel.RestoreResult.WrongPassphrase -> restoreWrongPassphrase
                                     SettingsViewModel.RestoreResult.InvalidFile -> restoreInvalid
                                 }
@@ -379,6 +396,13 @@ fun SettingsScreen(
             },
         )
     }
+}
+
+internal fun org.transdroid.protocol.DaemonType.displayNameRes(): Int = when (this) {
+    org.transdroid.protocol.DaemonType.TRANSMISSION -> R.string.client_transmission
+    org.transdroid.protocol.DaemonType.QBITTORRENT -> R.string.client_qbittorrent
+    org.transdroid.protocol.DaemonType.RTORRENT -> R.string.client_rtorrent
+    org.transdroid.protocol.DaemonType.DELUGE -> R.string.client_deluge
 }
 
 private const val MAX_BACKUP_BYTES = 10 * 1024 * 1024
@@ -472,6 +496,7 @@ private fun SearchProviderDialog(
                     value = apiKey,
                     onValueChange = { apiKey = it },
                     label = { Text(stringResource(R.string.settings_api_key)) },
+                    visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -493,9 +518,10 @@ private fun SearchProviderDialog(
             ) { Text(stringResource(R.string.settings_save)) }
         },
         dismissButton = {
-            if (onDelete != null) {
-                TextButton(onClick = onDelete) { Text(stringResource(R.string.details_remove_confirm)) }
-            } else {
+            Row {
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) { Text(stringResource(R.string.details_remove_confirm)) }
+                }
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.details_cancel)) }
             }
         },

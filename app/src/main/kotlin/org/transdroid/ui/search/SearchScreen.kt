@@ -75,7 +75,7 @@ fun SearchScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var confirmResult by remember { mutableStateOf<SearchResult?>(null) }
 
-    val addedMessage = ui.addedTitle?.let { stringResource(R.string.add_success) + ": " + it }
+    val addedMessage = ui.addedTitle?.let { stringResource(R.string.add_success_named, it) }
     val addErrorMessage = ui.addError?.message()
     LaunchedEffect(addedMessage, addErrorMessage) {
         val message = addedMessage ?: addErrorMessage
@@ -175,7 +175,7 @@ fun SearchScreen(
                         modifier = Modifier.align(Alignment.Center),
                     )
                     else -> LazyColumn(Modifier.fillMaxSize()) {
-                        items(ui.results) { result ->
+                        items(ui.results, key = { it.torrentUrl + it.title }) { result ->
                             ListItem(
                                 headlineContent = {
                                     Text(result.title, maxLines = 2, overflow = TextOverflow.Ellipsis)

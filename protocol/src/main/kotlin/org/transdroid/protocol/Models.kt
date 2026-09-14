@@ -8,7 +8,7 @@
  *
  * Transdroid is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * MERCHANTABILITY or PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
@@ -16,12 +16,31 @@
  */
 package org.transdroid.protocol
 
+import okhttp3.HttpUrl
+
 /** The torrent client (daemon) types supported by the protocol layer. */
 enum class DaemonType(val defaultPort: Int, val defaultSslPort: Int) {
     TRANSMISSION(9091, 443),
     QBITTORRENT(8080, 443),
     RTORRENT(80, 443),
     DELUGE(8112, 443),
+}
+
+/**
+ * Optional operations a daemon may support. The UI hides actions the active adapter
+ * does not list here rather than showing a generic failure.
+ */
+enum class DaemonCapability {
+    DELETE_DATA,
+    SET_LABELS,
+    SET_LOCATION,
+    RECHECK,
+    REANNOUNCE,
+    TORRENT_SPEED_LIMITS,
+    GLOBAL_SPEED_LIMITS,
+    ALT_SPEED,
+    SESSION_STATS,
+    ADD_OPTIONS,
 }
 
 /**
@@ -51,8 +70,18 @@ data class DaemonConfig(
      */
     val customHeaders: Map<String, String> = emptyMap(),
 ) {
+    /**
+     * Origin of the daemon (`http(s)://host:port`) with IPv6 hosts bracketed. Built via
+     * OkHttp so a typed IPv6 address never produces `http://2001:db8::1:9091`.
+     */
     val baseUrl: String
-        get() = (if (useSsl) "https" else "http") + "://" + host + ":" + port
+        get() = HttpUrl.Builder()
+            .scheme(if (useSsl) "https" else "http")
+            .host(host.removeSurrounding("[", "]"))
+            .port(port)
+            .build()
+            .toString()
+            .trimEnd('/')
 }
 
 enum class TorrentStatus {
@@ -124,6 +153,25 @@ data class TorrentFile(
         get() = if (sizeBytes <= 0) 1f else (downloadedBytes.toFloat() / sizeBytes).coerceIn(0f, 1f)
 }
 
+/** Extra options when adding a torrent. Unsupported fields are ignored by the adapter. */
+data class AddOptions(
+    val startPaused: Boolean = false,
+    val downloadDir: String? = null,
+    val labels: List<String> = emptyList(),
+)
+
+/** Daemon-wide transfer snapshot for the status bar, widget, and speed-limit UI. */
+data class SessionStats(
+    val downloadRate: Long = 0,
+    val uploadRate: Long = 0,
+    /** Bytes/s; 0 means unlimited; null means the daemon did not report a limit. */
+    val downloadLimitBytesPerSec: Long? = null,
+    val uploadLimitBytesPerSec: Long? = null,
+    val altSpeedEnabled: Boolean = false,
+    val freeSpaceBytes: Long? = null,
+    val downloadDir: String? = null,
+)
+
 /** Errors thrown by daemon adapters, so the UI can give targeted feedback. */
 sealed class DaemonException(message: String, cause: Throwable? = null) : Exception(message, cause) {
     /** The daemon could not be reached at all (network error, refused connection, timeout). */
@@ -137,4 +185,7 @@ sealed class DaemonException(message: String, cause: Throwable? = null) : Except
 
     /** TLS failed because the server's certificate is not trusted (e.g. self-signed). */
     class UntrustedServer(message: String, cause: Throwable? = null) : DaemonException(message, cause)
+
+    /** The connected client does not support this action. */
+    class Unsupported(message: String) : DaemonException(message)
 }

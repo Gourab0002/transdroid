@@ -27,11 +27,14 @@ Client adapters are the project's main extension point. Each one lives in its ow
 under `protocol/src/main/kotlin/org/transdroid/protocol/` and consists of:
 
 1. **An implementation of `DaemonAdapter`** (`org.transdroid.protocol.DaemonAdapter`) —
-   seven suspend functions: `testConnection`, `listTorrents`, `addByUrl`, `addByFile`,
-   `start`, `pause`, `remove`, `listFiles`. Map your client's states and units onto the
-   normalized `Torrent`/`TorrentFile` models (progress 0..1, rates in bytes/second, eta in
-   seconds or null when unknown). Throw the right `DaemonException` subtype — `Connection`,
-   `Authentication` or `UnexpectedResponse` — so the UI can give targeted feedback.
+   the required suspend functions `testConnection`, `listTorrents`, `addByUrl`/`addByFile`
+   (with `AddOptions`), `start`, `pause`, `remove`, `listFiles` and `setFilePriority`, plus
+   a `capabilities` set for optional actions (`recheck`, `setLabels`, `setLocation`,
+   speed limits, `sessionStats`, `DELETE_DATA`). Map your client's states and units onto
+   the normalized `Torrent`/`TorrentFile` models (progress 0..1, rates in bytes/second, eta
+   in seconds or null when unknown). Throw the right `DaemonException` subtype —
+   `Connection`, `Authentication`, `UntrustedServer`, `UnexpectedResponse` or `Unsupported`
+   — so the UI can give targeted feedback.
 2. **A `DaemonType` entry** in `Models.kt` with the client's default ports, plus a branch
    in `DaemonAdapterFactory.create`.
 3. **Fixture-based unit tests** — record real responses from your client into

@@ -18,17 +18,25 @@ package org.transdroid.protocol.qbittorrent
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.transdroid.protocol.AddOptions
 import org.transdroid.protocol.DaemonAdapter
+import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.DaemonConfig
 import org.transdroid.protocol.DaemonException
 import org.transdroid.protocol.FilePriority
+import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentFile
 import org.transdroid.protocol.TorrentStatus
@@ -50,6 +58,8 @@ class QbittorrentAdapter(
     @Volatile
     private var sessionCookie: String? = null
 
+    override val capabilities: Set<DaemonCapability> = CAPABILITIES
+
     override suspend fun testConnection(): String {
         val version = get("api/v2/app/version").use { it.readBodyOrThrow() }
         return "qBittorrent $version"
@@ -65,18 +75,12 @@ class QbittorrentAdapter(
         return infos.map { it.toTorrent() }
     }
 
-    override suspend fun addByUrl(url: String, startPaused: Boolean) {
-        val form = FormBody.Builder().add("urls", url).apply {
-            if (startPaused) {
-                // qBittorrent 4.x reads "paused", 5.x reads "stopped"; unknown fields are ignored
-                add("paused", "true")
-                add("stopped", "true")
-            }
-        }.build()
+    override suspend fun addByUrl(url: String, options: AddOptions) {
+        val form = FormBody.Builder().add("urls", url).apply { putAddOptions(options) }.build()
         post("api/v2/torrents/add", form).use { it.checkAddSucceeded() }
     }
 
-    override suspend fun addByFile(fileName: String, contents: ByteArray, startPaused: Boolean) {
+    override suspend fun addByFile(fileName: String, contents: ByteArray, options: AddOptions) {
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -84,13 +88,25 @@ class QbittorrentAdapter(
                 contents.toRequestBody("application/x-bittorrent".toMediaType()),
             )
             .apply {
-                if (startPaused) {
+                if (options.startPaused) {
                     addFormDataPart("paused", "true")
                     addFormDataPart("stopped", "true")
                 }
+                options.downloadDir?.takeIf { it.isNotBlank() }?.let { addFormDataPart("savepath", it) }
+                options.labels.firstOrNull()?.takeIf { it.isNotBlank() }?.let { addFormDataPart("category", it) }
             }
             .build()
         post("api/v2/torrents/add", body).use { it.checkAddSucceeded() }
+    }
+
+    private fun FormBody.Builder.putAddOptions(options: AddOptions) {
+        if (options.startPaused) {
+            // qBittorrent 4.x reads "paused", 5.x reads "stopped"; unknown fields are ignored
+            add("paused", "true")
+            add("stopped", "true")
+        }
+        options.downloadDir?.takeIf { it.isNotBlank() }?.let { add("savepath", it) }
+        options.labels.firstOrNull()?.takeIf { it.isNotBlank() }?.let { add("category", it) }
     }
 
     /** torrents/add reports failure as HTTP 200 with the body "Fails." */
@@ -108,6 +124,16 @@ class QbittorrentAdapter(
         hashesActionWithFallback("stop", "pause", torrentId)
     }
 
+    override suspend fun start(torrentIds: List<String>) {
+        if (torrentIds.isEmpty()) return
+        hashesActionWithFallback("start", "resume", torrentIds.joinToString("|"))
+    }
+
+    override suspend fun pause(torrentIds: List<String>) {
+        if (torrentIds.isEmpty()) return
+        hashesActionWithFallback("stop", "pause", torrentIds.joinToString("|"))
+    }
+
     override suspend fun remove(torrentId: String, deleteData: Boolean) {
         val form = FormBody.Builder()
             .add("hashes", torrentId)
@@ -116,8 +142,105 @@ class QbittorrentAdapter(
         post("api/v2/torrents/delete", form).use { it.readBodyOrThrow() }
     }
 
+    override suspend fun remove(torrentIds: List<String>, deleteData: Boolean) {
+        if (torrentIds.isEmpty()) return
+        val form = FormBody.Builder()
+            .add("hashes", torrentIds.joinToString("|"))
+            .add("deleteFiles", deleteData.toString())
+            .build()
+        post("api/v2/torrents/delete", form).use { it.readBodyOrThrow() }
+    }
+
+    override suspend fun setLabels(torrentId: String, labels: List<String>) {
+        val form = FormBody.Builder()
+            .add("hashes", torrentId)
+            .add("category", labels.firstOrNull().orEmpty())
+            .build()
+        post("api/v2/torrents/setCategory", form).use { it.readBodyOrThrow() }
+    }
+
+    override suspend fun setLocation(torrentId: String, path: String, moveData: Boolean) {
+        val form = FormBody.Builder()
+            .add("hashes", torrentId)
+            .add("location", path)
+            .build()
+        post("api/v2/torrents/setLocation", form).use { it.readBodyOrThrow() }
+    }
+
+    override suspend fun recheck(torrentId: String) {
+        post("api/v2/torrents/recheck", FormBody.Builder().add("hashes", torrentId).build())
+            .use { it.readBodyOrThrow() }
+    }
+
+    override suspend fun reannounce(torrentId: String) {
+        post("api/v2/torrents/reannounce", FormBody.Builder().add("hashes", torrentId).build())
+            .use { it.readBodyOrThrow() }
+    }
+
+    override suspend fun setTorrentSpeedLimits(
+        torrentId: String,
+        downloadBytesPerSec: Long?,
+        uploadBytesPerSec: Long?,
+    ) {
+        downloadBytesPerSec?.let { bytes ->
+            post(
+                "api/v2/torrents/setDownloadLimit",
+                FormBody.Builder().add("hashes", torrentId).add("limit", bytes.toString()).build(),
+            ).use { it.readBodyOrThrow() }
+        }
+        uploadBytesPerSec?.let { bytes ->
+            post(
+                "api/v2/torrents/setUploadLimit",
+                FormBody.Builder().add("hashes", torrentId).add("limit", bytes.toString()).build(),
+            ).use { it.readBodyOrThrow() }
+        }
+    }
+
+    override suspend fun setGlobalSpeedLimits(downloadBytesPerSec: Long?, uploadBytesPerSec: Long?) {
+        downloadBytesPerSec?.let { bytes ->
+            post("api/v2/transfer/setDownloadLimit", FormBody.Builder().add("limit", bytes.toString()).build())
+                .use { it.readBodyOrThrow() }
+        }
+        uploadBytesPerSec?.let { bytes ->
+            post("api/v2/transfer/setUploadLimit", FormBody.Builder().add("limit", bytes.toString()).build())
+                .use { it.readBodyOrThrow() }
+        }
+    }
+
+    override suspend fun setAltSpeedEnabled(enabled: Boolean) {
+        val current = get("api/v2/transfer/speedLimitsMode").use { it.readBodyOrThrow().trim() == "1" }
+        if (current != enabled) {
+            post("api/v2/transfer/toggleSpeedLimitsMode", FormBody.Builder().build())
+                .use { it.readBodyOrThrow() }
+        }
+    }
+
+    override suspend fun sessionStats(): SessionStats {
+        val transfer = get("api/v2/transfer/info").use { it.readBodyOrThrow() }
+        val obj = try {
+            json.parseToJsonElement(transfer).jsonObject
+        } catch (e: Exception) {
+            throw DaemonException.UnexpectedResponse("Cannot parse qBittorrent transfer info", e)
+        }
+        val prefsBody = get("api/v2/app/preferences").use { it.readBodyOrThrow() }
+        val prefs = try {
+            json.parseToJsonElement(prefsBody).jsonObject
+        } catch (e: Exception) {
+            null
+        }
+        return SessionStats(
+            downloadRate = obj["dl_info_speed"]?.jsonPrimitive?.longOrNull ?: 0L,
+            uploadRate = obj["up_info_speed"]?.jsonPrimitive?.longOrNull ?: 0L,
+            downloadLimitBytesPerSec = obj["dl_rate_limit"]?.jsonPrimitive?.longOrNull,
+            uploadLimitBytesPerSec = obj["up_rate_limit"]?.jsonPrimitive?.longOrNull,
+            altSpeedEnabled = get("api/v2/transfer/speedLimitsMode").use { it.readBodyOrThrow().trim() == "1" },
+            freeSpaceBytes = prefs?.get("free_space_on_disk")?.jsonPrimitive?.longOrNull,
+            downloadDir = prefs?.get("save_path")?.jsonPrimitive?.contentOrNull,
+        )
+    }
+
     override suspend fun listFiles(torrentId: String): List<TorrentFile> {
-        val body = get("api/v2/torrents/files?hash=$torrentId").use { it.readBodyOrThrow() }
+        val body = get("api/v2/torrents/files", mapOf("hash" to torrentId)).use { it.readBodyOrThrow() }
         val files = try {
             json.decodeFromString<List<FileInfo>>(body)
         } catch (e: Exception) {
@@ -129,7 +252,7 @@ class QbittorrentAdapter(
                 index = file.index ?: listIndex,
                 path = file.name,
                 sizeBytes = file.size,
-                downloadedBytes = (file.progress * file.size).toLong(),
+                downloadedBytes = if (file.size <= 0) 0L else (file.progress * file.size.toDouble()).toLong(),
                 priority = when (file.priority) {
                     0 -> FilePriority.OFF
                     6, 7 -> FilePriority.HIGH
@@ -198,8 +321,13 @@ class QbittorrentAdapter(
         }
     }
 
-    private suspend fun get(endpoint: String): Response =
-        sendAuthenticated { Request.Builder().url(config.baseUrl + joinPath(config.path, endpoint)).get() }
+    private suspend fun get(endpoint: String, query: Map<String, String> = emptyMap()): Response =
+        sendAuthenticated {
+            val url = (config.baseUrl + joinPath(config.path, endpoint)).toHttpUrl().newBuilder().apply {
+                query.forEach { (name, value) -> addQueryParameter(name, value) }
+            }.build()
+            Request.Builder().url(url).get()
+        }
 
     private suspend fun post(endpoint: String, body: okhttp3.RequestBody, allowNotFound: Boolean = false): Response =
         sendAuthenticated(allowNotFound) {
@@ -258,6 +386,7 @@ class QbittorrentAdapter(
         val added_on: Long = 0,
         val save_path: String? = null,
         val category: String = "",
+        val tags: String = "",
     ) {
         fun toTorrent() = Torrent(
             id = hash,
@@ -266,7 +395,7 @@ class QbittorrentAdapter(
                 "downloading", "metaDL", "forcedDL", "stalledDL", "forcedMetaDL" -> TorrentStatus.DOWNLOADING
                 "uploading", "stalledUP", "forcedUP" -> TorrentStatus.SEEDING
                 "pausedDL", "pausedUP", "stoppedDL", "stoppedUP" -> TorrentStatus.PAUSED
-                "checkingDL", "checkingUP", "checkingResumeData", "allocating" -> TorrentStatus.CHECKING
+                "checkingDL", "checkingUP", "checkingResumeData", "allocating", "moving" -> TorrentStatus.CHECKING
                 "queuedDL", "queuedUP" -> TorrentStatus.QUEUED
                 "error", "missingFiles" -> TorrentStatus.ERROR
                 else -> TorrentStatus.UNKNOWN
@@ -283,7 +412,10 @@ class QbittorrentAdapter(
             addedTimestamp = added_on.takeIf { it > 0 },
             downloadDir = save_path,
             error = if (state == "error" || state == "missingFiles") "Torrent in error state ($state)" else null,
-            labels = listOf(category).filter { it.isNotBlank() },
+            labels = buildList {
+                if (category.isNotBlank()) add(category)
+                tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { add(it) }
+            },
             // qBittorrent flags the metadata phase by state but reports no percentage
             metadataProgress = if (state == "metaDL" || state == "forcedMetaDL") 0f else null,
         )
@@ -301,5 +433,18 @@ class QbittorrentAdapter(
     private companion object {
         /** qBittorrent reports 8640000 seconds as "no ETA". */
         const val INFINITE_ETA = 8640000L
+
+        val CAPABILITIES = setOf(
+            DaemonCapability.DELETE_DATA,
+            DaemonCapability.SET_LABELS,
+            DaemonCapability.SET_LOCATION,
+            DaemonCapability.RECHECK,
+            DaemonCapability.REANNOUNCE,
+            DaemonCapability.TORRENT_SPEED_LIMITS,
+            DaemonCapability.GLOBAL_SPEED_LIMITS,
+            DaemonCapability.ALT_SPEED,
+            DaemonCapability.SESSION_STATS,
+            DaemonCapability.ADD_OPTIONS,
+        )
     }
 }

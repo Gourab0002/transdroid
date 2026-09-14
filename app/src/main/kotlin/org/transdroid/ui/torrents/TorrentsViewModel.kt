@@ -8,7 +8,7 @@
  *
  * Transdroid is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * MERCHANTABILITY or PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
@@ -33,11 +33,17 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.transdroid.AppContainer
 import org.transdroid.appContainer
+import org.transdroid.data.ProfilesReadError
 import org.transdroid.data.ServerProfile
+import org.transdroid.protocol.AddOptions
+import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.DaemonException
 import org.transdroid.protocol.FilePriority
+import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentFile
 import org.transdroid.protocol.TorrentStatus
@@ -48,13 +54,15 @@ sealed class UiError {
     data object Authentication : UiError()
     data object Ssl : UiError()
     data class Unexpected(val detail: String? = null) : UiError()
+    data object Unsupported : UiError()
 }
 
 internal fun Throwable.toUiError(host: String): UiError = when (this) {
     is DaemonException.Connection -> UiError.Connection(host)
     is DaemonException.Authentication -> UiError.Authentication
     is DaemonException.UntrustedServer -> UiError.Ssl
-    is DaemonException.UnexpectedResponse -> UiError.Unexpected(message)
+    is DaemonException.Unsupported -> UiError.Unsupported
+    is DaemonException.UnexpectedResponse -> UiError.Unexpected()
     else -> UiError.Unexpected()
 }
 
@@ -88,6 +96,8 @@ data class TorrentsUiState(
     val profilesLoaded: Boolean = false,
     /** Number of configured servers; single-server flows can skip confirmation steps. */
     val profileCount: Int = 0,
+    val profiles: List<ServerProfile> = emptyList(),
+    val profilesReadError: ProfilesReadError? = null,
     val torrents: List<Torrent> = emptyList(),
     /** True after the first successful load for the active profile. */
     val hasLoaded: Boolean = false,
@@ -98,16 +108,20 @@ data class TorrentsUiState(
     val nameFilter: String = "",
     val sort: TorrentSort = TorrentSort.DATE_ADDED,
     val selectedTorrentId: String? = null,
+    val selectedIds: Set<String> = emptySet(),
     val files: Map<String, List<TorrentFile>> = emptyMap(),
+    val filesError: UiError? = null,
+    val capabilities: Set<DaemonCapability> = emptySet(),
+    val sessionStats: SessionStats? = null,
 ) {
     val availableLabels: List<String>
         get() = torrents.flatMap { it.labels }.distinct().sorted()
 
     val totalDownloadRate: Long
-        get() = torrents.sumOf { it.downloadRate }
+        get() = sessionStats?.downloadRate ?: torrents.sumOf { it.downloadRate }
 
     val totalUploadRate: Long
-        get() = torrents.sumOf { it.uploadRate }
+        get() = sessionStats?.uploadRate ?: torrents.sumOf { it.uploadRate }
 
     val visibleTorrents: List<Torrent>
         get() = torrents
@@ -120,6 +134,9 @@ data class TorrentsUiState(
 
     val selectedTorrent: Torrent?
         get() = torrents.firstOrNull { it.id == selectedTorrentId }
+
+    val selecting: Boolean
+        get() = selectedIds.isNotEmpty()
 }
 
 class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
@@ -127,32 +144,57 @@ class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
     private val _ui = MutableStateFlow(TorrentsUiState())
     val ui: StateFlow<TorrentsUiState> = _ui.asStateFlow()
 
+    private val refreshMutex = Mutex()
+
     init {
         viewModelScope.launch {
-            combine(container.activeProfile, container.profilesRepository.profiles) { active, all ->
-                active to all.size
-            }.collect { (profile, count) ->
+            combine(
+                container.activeProfile,
+                container.profilesRepository.profiles,
+                container.profilesRepository.readError,
+                container.settingsRepository.torrentFilter,
+                container.settingsRepository.torrentSort,
+            ) { active, all, readError, filterName, sortName ->
+                Combined(active, all, readError, filterName, sortName)
+            }.collect { snapshot ->
                 _ui.update { state ->
-                    val switched = profile?.id != state.activeProfile?.id
+                    val switched = snapshot.active?.id != state.activeProfile?.id
                     state.copy(
-                        activeProfile = profile,
+                        activeProfile = snapshot.active,
                         profilesLoaded = true,
-                        profileCount = count,
+                        profileCount = snapshot.all.size,
+                        profiles = snapshot.all,
+                        profilesReadError = snapshot.readError,
                         torrents = if (switched) emptyList() else state.torrents,
                         hasLoaded = if (switched) false else state.hasLoaded,
                         files = if (switched) emptyMap() else state.files,
                         error = if (switched) null else state.error,
+                        selectedIds = if (switched) emptySet() else state.selectedIds,
+                        capabilities = if (switched) emptySet() else state.capabilities,
+                        sessionStats = if (switched) null else state.sessionStats,
+                        filter = TorrentFilter.entries.find { it.name == snapshot.filterName } ?: TorrentFilter.ALL,
+                        sort = TorrentSort.entries.find { it.name == snapshot.sortName } ?: TorrentSort.DATE_ADDED,
                     )
                 }
-                if (profile != null) refresh(showSpinner = false)
+                if (snapshot.active != null) refresh(showSpinner = false)
             }
         }
     }
 
-    /** Runs while the torrents UI is started; cancellation stops the polling. */
+    private data class Combined(
+        val active: ServerProfile?,
+        val all: List<ServerProfile>,
+        val readError: ProfilesReadError?,
+        val filterName: String,
+        val sortName: String,
+    )
+
+    /** Runs while the torrents UI is in the foreground; cancellation stops the polling. */
     suspend fun pollLoop() {
         while (currentCoroutineContext().isActive) {
             refreshNow(showSpinner = false)
+            val selectedId = _ui.value.selectedTorrentId
+            if (selectedId != null) loadFilesNow(selectedId)
             delay(container.settingsRepository.pollIntervalSeconds.first() * 1000L)
         }
     }
@@ -163,31 +205,52 @@ class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
 
     private suspend fun refreshNow(showSpinner: Boolean) {
         val profile = _ui.value.activeProfile ?: return
-        if (showSpinner) _ui.update { it.copy(refreshing = true) }
-        try {
-            val torrents = container.adapterFor(profile).listTorrents()
-            _ui.update {
-                if (it.activeProfile?.id != profile.id) it
-                else it.copy(torrents = torrents, hasLoaded = true, refreshing = false, error = null)
-            }
-            container.widgetStateRepository.update(profile.displayName, torrents)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            _ui.update {
-                // A late failure from a server the user already switched away from is stale
-                if (it.activeProfile?.id != profile.id) it
-                else it.copy(refreshing = false, error = e.toUiError(profile.host))
+        refreshMutex.withLock {
+            if (showSpinner) _ui.update { it.copy(refreshing = true) }
+            try {
+                val adapter = container.adapterFor(profile)
+                val torrents = adapter.listTorrents()
+                val stats = if (DaemonCapability.SESSION_STATS in adapter.capabilities) {
+                    try {
+                        adapter.sessionStats()
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else {
+                    null
+                }
+                _ui.update {
+                    if (it.activeProfile?.id != profile.id) it
+                    else it.copy(
+                        torrents = torrents,
+                        hasLoaded = true,
+                        refreshing = false,
+                        error = null,
+                        capabilities = adapter.capabilities,
+                        sessionStats = stats,
+                        selectedIds = it.selectedIds.intersect(torrents.map { torrent -> torrent.id }.toSet()),
+                    )
+                }
+                container.widgetStateRepository.update(profile.displayName, torrents)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update {
+                    if (it.activeProfile?.id != profile.id) it
+                    else it.copy(refreshing = false, error = e.toUiError(profile.host))
+                }
             }
         }
     }
 
     fun setFilter(filter: TorrentFilter) {
         _ui.update { it.copy(filter = filter) }
+        viewModelScope.launch { container.settingsRepository.setTorrentFilter(filter.name) }
     }
 
     fun setSort(sort: TorrentSort) {
         _ui.update { it.copy(sort = sort) }
+        viewModelScope.launch { container.settingsRepository.setTorrentSort(sort.name) }
     }
 
     fun setLabelFilter(label: String?) {
@@ -198,6 +261,10 @@ class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
         _ui.update { it.copy(nameFilter = query) }
     }
 
+    fun setActiveServer(profileId: String) {
+        viewModelScope.launch { container.settingsRepository.setActiveServer(profileId) }
+    }
+
     fun setFilePriority(torrentId: String, file: TorrentFile, priority: FilePriority) {
         val profile = _ui.value.activeProfile ?: return
         viewModelScope.launch {
@@ -205,7 +272,7 @@ class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
                 val adapter = container.adapterFor(profile)
                 adapter.setFilePriority(torrentId, file.index, priority)
                 val files = adapter.listFiles(torrentId)
-                _ui.update { it.copy(files = it.files + (torrentId to files)) }
+                _ui.update { it.copy(files = it.files + (torrentId to files), filesError = null) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -215,7 +282,19 @@ class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun select(torrentId: String?) {
-        _ui.update { it.copy(selectedTorrentId = torrentId) }
+        _ui.update { it.copy(selectedTorrentId = torrentId, selectedIds = emptySet()) }
+        if (torrentId != null) loadFiles(torrentId)
+    }
+
+    fun toggleSelection(torrentId: String) {
+        _ui.update { state ->
+            val next = if (torrentId in state.selectedIds) state.selectedIds - torrentId else state.selectedIds + torrentId
+            state.copy(selectedIds = next)
+        }
+    }
+
+    fun clearSelection() {
+        _ui.update { it.copy(selectedIds = emptySet()) }
     }
 
     fun toggleStartPause(torrent: Torrent) {
@@ -224,30 +303,85 @@ class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    fun startSelected() {
+        val ids = _ui.value.selectedIds.toList()
+        runAction { adapter -> adapter.start(ids) }
+        clearSelection()
+    }
+
+    fun pauseSelected() {
+        val ids = _ui.value.selectedIds.toList()
+        runAction { adapter -> adapter.pause(ids) }
+        clearSelection()
+    }
+
+    fun removeSelected(deleteData: Boolean) {
+        val ids = _ui.value.selectedIds.toList()
+        runAction { adapter -> adapter.remove(ids, deleteData) }
+        clearSelection()
+    }
+
     fun remove(torrent: Torrent, deleteData: Boolean) {
         runAction { adapter -> adapter.remove(torrent.id, deleteData) }
+        _ui.update {
+            if (it.selectedTorrentId == torrent.id) it.copy(selectedTorrentId = null) else it
+        }
+    }
+
+    fun recheck(torrentId: String) {
+        runAction { adapter -> adapter.recheck(torrentId) }
+    }
+
+    fun reannounce(torrentId: String) {
+        runAction { adapter -> adapter.reannounce(torrentId) }
+    }
+
+    fun setLabels(torrentId: String, labels: List<String>) {
+        runAction { adapter -> adapter.setLabels(torrentId, labels) }
+    }
+
+    fun setLocation(torrentId: String, path: String, moveData: Boolean) {
+        runAction { adapter -> adapter.setLocation(torrentId, path, moveData) }
+    }
+
+    fun setTorrentSpeedLimits(torrentId: String, downloadBytesPerSec: Long?, uploadBytesPerSec: Long?) {
+        runAction { adapter -> adapter.setTorrentSpeedLimits(torrentId, downloadBytesPerSec, uploadBytesPerSec) }
+    }
+
+    fun setGlobalSpeedLimits(downloadBytesPerSec: Long?, uploadBytesPerSec: Long?) {
+        runAction { adapter -> adapter.setGlobalSpeedLimits(downloadBytesPerSec, uploadBytesPerSec) }
+    }
+
+    fun setAltSpeedEnabled(enabled: Boolean) {
+        runAction { adapter -> adapter.setAltSpeedEnabled(enabled) }
     }
 
     fun loadFiles(torrentId: String) {
+        viewModelScope.launch { loadFilesNow(torrentId) }
+    }
+
+    private suspend fun loadFilesNow(torrentId: String) {
         val profile = _ui.value.activeProfile ?: return
-        viewModelScope.launch {
-            try {
-                val files = container.adapterFor(profile).listFiles(torrentId)
-                _ui.update { it.copy(files = it.files + (torrentId to files)) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Leave the files section empty; the list-level error banner covers connectivity
-            }
+        try {
+            val files = container.adapterFor(profile).listFiles(torrentId)
+            _ui.update { it.copy(files = it.files + (torrentId to files), filesError = null) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _ui.update { it.copy(filesError = e.toUiError(profile.host)) }
         }
     }
 
     /** Adds a torrent by magnet/URL; invokes [onResult] with null on success. */
     fun add(url: String, startPaused: Boolean = false, onResult: (UiError?) -> Unit) {
+        add(url, AddOptions(startPaused = startPaused), onResult)
+    }
+
+    fun add(url: String, options: AddOptions, onResult: (UiError?) -> Unit) {
         val profile = _ui.value.activeProfile ?: return
         viewModelScope.launch {
             try {
-                container.adapterFor(profile).addByUrl(url, startPaused)
+                container.adapterFor(profile).addByUrl(url, options)
                 refreshNow(showSpinner = false)
                 onResult(null)
             } catch (e: CancellationException) {
@@ -263,7 +397,7 @@ class TorrentsViewModel(private val container: AppContainer) : ViewModel() {
         val profile = _ui.value.activeProfile ?: return
         viewModelScope.launch {
             try {
-                container.adapterFor(profile).addByFile(fileName, contents, startPaused)
+                container.adapterFor(profile).addByFile(fileName, contents, AddOptions(startPaused = startPaused))
                 refreshNow(showSpinner = false)
                 onResult(null)
             } catch (e: CancellationException) {

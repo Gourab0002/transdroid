@@ -101,4 +101,28 @@ class DaemonProbeTest {
 
         assertNull(DaemonProbe.probe(client, server.hostName, server.port))
     }
+
+    @Test
+    fun `html 403 is not treated as qbittorrent`() = runTest {
+        dispatch { MockResponse().setResponseCode(403).setBody("<html>cloudflare</html>") }
+
+        assertNull(DaemonProbe.probe(client, server.hostName, server.port))
+    }
+
+    @Test
+    fun `recognizes rtorrent by xml-rpc methodResponse`() = runTest {
+        dispatch { request ->
+            if (request.path == "/RPC2") {
+                MockResponse().setBody(
+                    """<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>"""
+                )
+            } else {
+                MockResponse().setResponseCode(404)
+            }
+        }
+
+        val found = DaemonProbe.probe(client, server.hostName, server.port)
+
+        assertEquals(DaemonType.RTORRENT, found?.type)
+    }
 }

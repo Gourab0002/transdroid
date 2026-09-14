@@ -8,7 +8,7 @@
  *
  * Transdroid is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * MERCHANTABILITY or PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
@@ -17,18 +17,39 @@
 package org.transdroid.protocol.internal
 
 import java.io.StringReader
+import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.Node
 import org.xml.sax.InputSource
 
-/** Parses XML from an untrusted server with DTDs disabled, ruling out XXE. */
-internal fun parseXmlSafely(xml: String): Document =
-    DocumentBuilderFactory.newInstance().apply {
-        setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+/**
+ * Parses XML from an untrusted server with DTDs and external entities disabled, ruling out XXE.
+ * Feature URIs that a given factory does not recognize are skipped so Android's parser cannot
+ * fail the whole call before parse (desktop tests use Xerces, which accepts the Apache URI).
+ */
+internal fun parseXmlSafely(xml: String): Document {
+    val factory = DocumentBuilderFactory.newInstance().apply {
         isExpandEntityReferences = false
-    }.newDocumentBuilder().parse(InputSource(StringReader(xml)))
+        isXIncludeAware = false
+        isNamespaceAware = false
+        setFeatureQuietly(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+        setFeatureQuietly("http://apache.org/xml/features/disallow-doctype-decl", true)
+        setFeatureQuietly("http://xml.org/sax/features/external-general-entities", false)
+        setFeatureQuietly("http://xml.org/sax/features/external-parameter-entities", false)
+        setFeatureQuietly("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+    }
+    return factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
+}
+
+private fun DocumentBuilderFactory.setFeatureQuietly(name: String, value: Boolean) {
+    try {
+        setFeature(name, value)
+    } catch (_: Exception) {
+        // Factory-specific; the remaining flags still apply
+    }
+}
 
 internal fun Element.childElements(): List<Element> {
     val result = mutableListOf<Element>()

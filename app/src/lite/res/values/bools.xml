@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Feature gates for the lite (Google Play) flavor -->
+    <!-- Unused in v3; kept so flavor resources stay aligned with full. -->
     <bool name="updatecheck_available">false</bool>
     <bool name="search_available">false</bool>
     <bool name="rss_available">false</bool>

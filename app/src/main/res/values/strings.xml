@@ -6,6 +6,16 @@
     <!-- Torrents list -->
     <string name="torrents_title">Torrents</string>
     <string name="torrents_empty">No torrents</string>
+    <string name="torrents_select_one">Select a torrent</string>
+    <string name="torrents_selected">%1$d selected</string>
+    <string name="torrents_switch_server">Switch server</string>
+    <string name="torrents_server_speeds">%1$s · ↓ %2$s ↑ %3$s</string>
+    <string name="torrents_card_meta"> · %1$d%% · %2$s</string>
+    <string name="torrents_card_speeds">↓ %1$s  ↑ %2$s</string>
+    <string name="profiles_locked_title">Unlock the device</string>
+    <string name="profiles_locked_message">Server details are locked until you unlock the device. They are still stored on this phone.</string>
+    <string name="profiles_decrypt_title">Could not read saved servers</string>
+    <string name="profiles_decrypt_message">The encrypted server list cannot be decrypted with this device key. Restore a backup from Settings if you have one — nothing on disk was deleted.</string>
     <string name="torrents_no_server_title">Welcome to Transdroid</string>
     <string name="torrents_no_server_message">Add your torrent client to get started</string>
     <string name="torrents_no_server_button">Add a server</string>
@@ -53,6 +63,14 @@
     <string name="details_location">Location</string>
     <string name="details_labels">Labels</string>
     <string name="details_files_empty">No file details available</string>
+    <string name="details_files_loading">Loading files…</string>
+    <string name="details_recheck">Recheck</string>
+    <string name="details_reannounce">Reannounce</string>
+    <string name="details_set_label">Set label</string>
+    <string name="details_set_location">Set location</string>
+    <string name="details_transferred_with_speed">%1$s  ↓ %2$s</string>
+    <string name="details_uploaded_with_speed">%1$s  ↑ %2$s</string>
+    <string name="details_file_meta">%1$s / %2$s · %3$s</string>
     <string name="details_not_found">This torrent is no longer in the list</string>
     <string name="priority_off">Skipped</string>
     <string name="priority_low">Low priority</string>
@@ -76,12 +94,14 @@
     <string name="add_paused_summary">Choose which files to download first, then start it from the details screen</string>
     <string name="add_button">Add to %1$s</string>
     <string name="add_success">Torrent added</string>
+    <string name="add_success_named">Torrent added: %1$s</string>
     <string name="add_invalid">Enter a magnet link or http(s) URL to a torrent file</string>
 
     <!-- RSS -->
     <string name="rss_title">RSS feeds</string>
     <string name="rss_empty">Add an RSS feed to see new torrents here</string>
     <string name="rss_add_feed">Add feed</string>
+    <string name="rss_edit_feed">Edit feed</string>
     <string name="rss_delete_feed">Delete feed</string>
     <string name="rss_feed_url">Feed URL</string>
     <string name="rss_no_items">No items in this feed</string>
@@ -101,10 +121,20 @@
     <string name="settings_servers">Servers</string>
     <string name="settings_add_server">Add server</string>
     <string name="settings_active_server">Active</string>
+    <string name="settings_server_summary">%1$s · %2$s:%3$d</string>
     <string name="settings_edit_server">Edit server</string>
     <string name="settings_new_server">New server</string>
     <string name="settings_name">Name</string>
     <string name="settings_type">Client type</string>
+    <string name="client_transmission">Transmission</string>
+    <string name="client_qbittorrent">qBittorrent</string>
+    <string name="client_rtorrent">rTorrent</string>
+    <string name="client_deluge">Deluge</string>
+    <string name="settings_delete_confirm_title">Delete this server?</string>
+    <string name="settings_speed_limits">Speed limits</string>
+    <string name="settings_speed_download">Download limit (KB/s, 0 = unlimited)</string>
+    <string name="settings_speed_upload">Upload limit (KB/s, 0 = unlimited)</string>
+    <string name="settings_alt_speed">Alternative speed limits</string>
     <string name="settings_host">Host name or IP address</string>
     <string name="settings_port">Port</string>
     <string name="settings_use_ssl">Use HTTPS (SSL)</string>
@@ -173,7 +203,10 @@
     <string name="backup_export_failed">Could not write the backup file</string>
     <string name="backup_wrong_passphrase">Wrong passphrase for this backup</string>
     <string name="backup_invalid_file">That is not a readable Transdroid backup file</string>
-    <string name="backup_restored">Restored %1$d server(s)</string>
+    <plurals name="backup_restored">
+        <item quantity="one">Restored %d server</item>
+        <item quantity="other">Restored %d servers</item>
+    </plurals>
 
     <!-- Notifications -->
     <string name="notification_channel_finished">Finished torrents</string>
@@ -182,11 +215,15 @@
     <string name="widget_description">Torrent counts and speeds of your active server</string>
     <string name="widget_list_description">Your most active torrents with live progress</string>
     <string name="widget_no_data">Open the app to load torrents</string>
+    <string name="widget_stat_down">↓ %1$d</string>
+    <string name="widget_stat_up">↑ %1$d</string>
+    <string name="widget_stat_paused">Paused %1$d</string>
 
     <!-- Errors -->
     <string name="error_connection">Cannot connect to %1$s</string>
     <string name="error_authentication">The server rejected the user name or password</string>
     <string name="error_unexpected">Unexpected reply from the server</string>
+    <string name="error_unsupported">This torrent client does not support that action</string>
     <string name="error_ssl">The server\'s HTTPS certificate is not trusted</string>
 
     <plurals name="notification_finished_title">

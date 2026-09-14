@@ -90,10 +90,14 @@ internal object XmlRpc {
             ?: return value.textContent // untyped <value> is a string
         return when (typed.tagName) {
             "string" -> typed.textContent
-            "i4", "i8", "int" -> typed.textContent.trim().toLong()
-            "boolean" -> typed.textContent.trim() == "1"
-            "double" -> typed.textContent.trim().toDouble()
-            "base64" -> Base64.getDecoder().decode(typed.textContent.trim())
+            "i4", "i8", "int" -> parseRpcLong(typed.textContent)
+            "boolean" -> typed.textContent.trim() == "1" || typed.textContent.trim().equals("true", ignoreCase = true)
+            "double" -> typed.textContent.trim().toDoubleOrNull() ?: 0.0
+            "base64" -> try {
+                Base64.getDecoder().decode(typed.textContent.trim())
+            } catch (e: IllegalArgumentException) {
+                throw DaemonException.UnexpectedResponse("Invalid XML-RPC base64", e)
+            }
             "array" -> typed.childElements().firstOrNull { it.tagName == "data" }
                 ?.childElements()?.filter { it.tagName == "value" }?.map(::parseValue)
                 ?: emptyList<Any?>()
@@ -104,6 +108,13 @@ internal object XmlRpc {
             }
             else -> typed.textContent
         }
+    }
+
+    private fun parseRpcLong(text: String): Long {
+        val trimmed = text.trim()
+        return trimmed.toLongOrNull()
+            ?: trimmed.toDoubleOrNull()?.toLong()
+            ?: throw DaemonException.UnexpectedResponse("Invalid XML-RPC integer: $trimmed")
     }
 
     private fun escape(text: String): String = text

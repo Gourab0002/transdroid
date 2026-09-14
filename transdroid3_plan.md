@@ -90,8 +90,8 @@ A `WindowSizeClass`-driven adaptive layout, replacing the three-XML-files-per-br
 **Phase 4 — qBittorrent, rTorrent, then maybe Deluge**
 Same protocol + fixture-based unit test pattern as Phase 1.
 
-**Phase 5 — Search, rebuilt in-app**
-Design as an in-app extension point, not a separate companion package.
+**Phase 5 — Search, rebuilt in-app** — done (Torznab / Jackett / Prowlarr).
 
-**Phase 6 — Open to community**
-Once the core (networking + 2-3 screens + a handful of adapters) is stable: publish CONTRIBUTING docs, define the adapter interface as the extension point for new clients, tag good-first-issues.
+**Phase 6 — Open to community** — CONTRIBUTING.md and the adapter interface are in tree.
+
+See the README for current alpha status; this document is the original rewrite plan.

@@ -52,6 +52,7 @@ internal object KeystoreProfilesCipher : ProfilesCipher {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
+                .setUnlockedDeviceRequired(true)
                 .build()
         )
         return generator.generateKey()

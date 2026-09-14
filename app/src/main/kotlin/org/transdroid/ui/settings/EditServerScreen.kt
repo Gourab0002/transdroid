@@ -89,21 +89,42 @@ fun EditServerScreen(
     val discovery by viewModel.discovery.collectAsStateWithLifecycle()
     val existing = profiles.firstOrNull { it.id == serverId }
 
-    var name by rememberSaveable(existing?.id) { mutableStateOf(existing?.name.orEmpty()) }
-    var type by rememberSaveable(existing?.id) { mutableStateOf(existing?.type ?: DaemonType.TRANSMISSION) }
-    var host by rememberSaveable(existing?.id) { mutableStateOf(existing?.host.orEmpty()) }
-    var port by rememberSaveable(existing?.id) {
+    val formKey = serverId
+    var hydrated by remember(formKey) { mutableStateOf(serverId == null) }
+    var name by rememberSaveable(formKey) { mutableStateOf(existing?.name.orEmpty()) }
+    var type by rememberSaveable(formKey) { mutableStateOf(existing?.type ?: DaemonType.TRANSMISSION) }
+    var host by rememberSaveable(formKey) { mutableStateOf(existing?.host.orEmpty()) }
+    var port by rememberSaveable(formKey) {
         mutableStateOf((existing?.port ?: DaemonType.TRANSMISSION.defaultPort).toString())
     }
-    var useSsl by rememberSaveable(existing?.id) { mutableStateOf(existing?.useSsl ?: false) }
-    var path by rememberSaveable(existing?.id) { mutableStateOf(existing?.path.orEmpty()) }
-    var username by rememberSaveable(existing?.id) { mutableStateOf(existing?.username.orEmpty()) }
-    var password by rememberSaveable(existing?.id) { mutableStateOf(existing?.password.orEmpty()) }
-    var pinnedCert by rememberSaveable(existing?.id) { mutableStateOf(existing?.pinnedCertSha256.orEmpty()) }
-    var customHeaders by rememberSaveable(existing?.id) { mutableStateOf(existing?.customHeaders.orEmpty()) }
+    var useSsl by rememberSaveable(formKey) { mutableStateOf(existing?.useSsl ?: false) }
+    var path by rememberSaveable(formKey) { mutableStateOf(existing?.path.orEmpty()) }
+    var username by rememberSaveable(formKey) { mutableStateOf(existing?.username.orEmpty()) }
+    // Secrets stay in composition memory only — not written to the activity instance bundle
+    var password by remember(formKey) { mutableStateOf(existing?.password.orEmpty()) }
+    var pinnedCert by rememberSaveable(formKey) { mutableStateOf(existing?.pinnedCertSha256.orEmpty()) }
+    var customHeaders by rememberSaveable(formKey) { mutableStateOf(existing?.customHeaders.orEmpty()) }
     var hostError by remember { mutableStateOf(false) }
     var portError by remember { mutableStateOf(false) }
     var showHelp by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    LaunchedEffect(existing) {
+        val profile = existing ?: return@LaunchedEffect
+        if (!hydrated) {
+            name = profile.name
+            type = profile.type
+            host = profile.host
+            port = profile.port.toString()
+            useSsl = profile.useSsl
+            path = profile.path
+            username = profile.username
+            password = profile.password
+            pinnedCert = profile.pinnedCertSha256
+            customHeaders = profile.customHeaders
+            hydrated = true
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose { viewModel.resetTestState() }
@@ -176,10 +197,7 @@ fun EditServerScreen(
                         )
                     }
                     if (existing != null) {
-                        IconButton(onClick = {
-                            viewModel.delete(existing.id)
-                            onBack()
-                        }) {
+                        IconButton(onClick = { showDeleteConfirm = true }) {
                             Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.settings_delete))
                         }
                     }
@@ -203,7 +221,14 @@ fun EditServerScreen(
                         host = daemon.host
                         port = daemon.port.toString()
                         useSsl = false
-                        if (name.isBlank()) name = daemon.type.displayName()
+                        if (name.isBlank()) {
+                            name = when (daemon.type) {
+                                DaemonType.TRANSMISSION -> "Transmission"
+                                DaemonType.QBITTORRENT -> "qBittorrent"
+                                DaemonType.RTORRENT -> "rTorrent"
+                                DaemonType.DELUGE -> "Deluge"
+                            }
+                        }
                         hostError = false
                         portError = false
                     },
@@ -286,18 +311,26 @@ fun EditServerScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable {
+                    val checked = !useSsl
+                    val oldDefault = if (useSsl) type.defaultSslPort else type.defaultPort
+                    val newDefault = if (checked) type.defaultSslPort else type.defaultPort
+                    if (port == oldDefault.toString()) port = newDefault.toString()
+                    useSsl = checked
+                },
+            ) {
                 Switch(
                     checked = useSsl,
                     onCheckedChange = { checked ->
-                        // Track the type's default port across the toggle (9091 <-> 443 etc.)
                         val oldDefault = if (useSsl) type.defaultSslPort else type.defaultPort
                         val newDefault = if (checked) type.defaultSslPort else type.defaultPort
                         if (port == oldDefault.toString()) port = newDefault.toString()
                         useSsl = checked
                     },
                 )
-                Spacer(Modifier.fillMaxWidth(0.05f))
+                Spacer(Modifier.width(12.dp))
                 Text(stringResource(R.string.settings_use_ssl))
             }
             OutlinedTextField(
@@ -462,14 +495,30 @@ fun EditServerScreen(
             }
         }
     }
+
+    if (showDeleteConfirm && existing != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text(stringResource(R.string.settings_delete_confirm_title)) },
+            text = { Text(existing.displayName) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.delete(existing.id)
+                    showDeleteConfirm = false
+                    onBack()
+                }) { Text(stringResource(R.string.settings_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.details_cancel))
+                }
+            },
+        )
+    }
 }
 
-private fun DaemonType.displayName(): String = when (this) {
-    DaemonType.TRANSMISSION -> "Transmission"
-    DaemonType.QBITTORRENT -> "qBittorrent"
-    DaemonType.RTORRENT -> "rTorrent"
-    DaemonType.DELUGE -> "Deluge"
-}
+@Composable
+private fun DaemonType.displayName(): String = stringResource(displayNameRes())
 
 @Composable
 private fun HelpEntry(titleRes: Int, bodyRes: Int) {

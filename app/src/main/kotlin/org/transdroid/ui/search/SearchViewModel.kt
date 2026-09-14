@@ -101,7 +101,10 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
                 return@launch
             }
             try {
-                container.adapterFor(profile).addByUrl(result.torrentUrl)
+                container.adapterFor(profile).addByUrl(
+                    result.torrentUrl,
+                    org.transdroid.protocol.AddOptions(startPaused = false),
+                )
                 _ui.update { it.copy(addedTitle = result.title, addError = null) }
             } catch (e: CancellationException) {
                 throw e

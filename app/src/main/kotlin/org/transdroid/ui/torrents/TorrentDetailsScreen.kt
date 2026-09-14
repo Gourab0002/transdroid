@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -45,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -65,6 +68,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.DateFormat
 import java.util.Date
 import org.transdroid.R
+import org.transdroid.protocol.TorrentFile
+import org.transdroid.ui.message
+import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.FilePriority
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentStatus
@@ -131,15 +137,19 @@ fun TorrentDetailsContent(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var showRemoveDialog by remember { mutableStateOf(false) }
+    var showLabelDialog by remember { mutableStateOf(false) }
+    var showLocationDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(torrent.id) { viewModel.loadFiles(torrent.id) }
+    val files = ui.files[torrent.id]
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-    ) {
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        ) {
         Text(torrent.name, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(12.dp))
         LinearProgressIndicator(
@@ -170,17 +180,52 @@ fun TorrentDetailsContent(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val paused = torrent.status == TorrentStatus.PAUSED
             Button(onClick = { viewModel.toggleStartPause(torrent) }) {
+                val label = stringResource(if (paused) R.string.details_start else R.string.details_pause)
                 Icon(
                     if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                    contentDescription = null,
+                    contentDescription = label,
                 )
-                Text(
-                    " " + stringResource(if (paused) R.string.details_start else R.string.details_pause)
-                )
+                Text(label)
             }
             OutlinedButton(onClick = { showRemoveDialog = true }) {
-                Icon(Icons.Default.Delete, contentDescription = null)
-                Text(" " + stringResource(R.string.details_remove))
+                val label = stringResource(R.string.details_remove)
+                Icon(Icons.Default.Delete, contentDescription = label)
+                Text(label)
+            }
+        }
+        if (ui.capabilities.any {
+                it in setOf(
+                    DaemonCapability.RECHECK,
+                    DaemonCapability.REANNOUNCE,
+                    DaemonCapability.SET_LABELS,
+                    DaemonCapability.SET_LOCATION,
+                )
+            }
+        ) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (DaemonCapability.RECHECK in ui.capabilities) {
+                    TextButton(onClick = { viewModel.recheck(torrent.id) }) {
+                        Text(stringResource(R.string.details_recheck))
+                    }
+                }
+                if (DaemonCapability.REANNOUNCE in ui.capabilities) {
+                    TextButton(onClick = { viewModel.reannounce(torrent.id) }) {
+                        Text(stringResource(R.string.details_reannounce))
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (DaemonCapability.SET_LABELS in ui.capabilities) {
+                    TextButton(onClick = { showLabelDialog = true }) {
+                        Text(stringResource(R.string.details_set_label))
+                    }
+                }
+                if (DaemonCapability.SET_LOCATION in ui.capabilities) {
+                    TextButton(onClick = { showLocationDialog = true }) {
+                        Text(stringResource(R.string.details_set_location))
+                    }
+                }
             }
         }
 
@@ -194,13 +239,27 @@ fun TorrentDetailsContent(
         DetailRow(stringResource(R.string.details_size), formatBytes(torrent.sizeBytes))
         DetailRow(
             stringResource(R.string.details_downloaded),
-            formatBytes(torrent.downloadedBytes) +
-                (if (torrent.downloadRate > 0) "  ↓ ${formatSpeed(torrent.downloadRate)}" else ""),
+            if (torrent.downloadRate > 0) {
+                stringResource(
+                    R.string.details_transferred_with_speed,
+                    formatBytes(torrent.downloadedBytes),
+                    formatSpeed(torrent.downloadRate),
+                )
+            } else {
+                formatBytes(torrent.downloadedBytes)
+            },
         )
         DetailRow(
             stringResource(R.string.details_uploaded),
-            formatBytes(torrent.uploadedBytes) +
-                (if (torrent.uploadRate > 0) "  ↑ ${formatSpeed(torrent.uploadRate)}" else ""),
+            if (torrent.uploadRate > 0) {
+                stringResource(
+                    R.string.details_uploaded_with_speed,
+                    formatBytes(torrent.uploadedBytes),
+                    formatSpeed(torrent.uploadRate),
+                )
+            } else {
+                formatBytes(torrent.uploadedBytes)
+            },
         )
         DetailRow(stringResource(R.string.details_ratio), formatRatio(torrent.ratio))
         DetailRow(stringResource(R.string.details_peers), torrent.peersConnected.toString())
@@ -223,55 +282,43 @@ fun TorrentDetailsContent(
             color = MaterialTheme.colorScheme.primary,
         )
         Spacer(Modifier.height(8.dp))
-        val files = ui.files[torrent.id]
-        if (files.isNullOrEmpty()) {
-            Text(
-                stringResource(R.string.details_files_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            files.forEachIndexed { index, file ->
-                if (index > 0) HorizontalDivider(Modifier.padding(vertical = 6.dp))
-                var priorityMenuOpen by remember(file.index) { mutableStateOf(false) }
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { priorityMenuOpen = true },
+        }
+        when {
+            ui.filesError != null && files == null -> {
+                Text(
+                    ui.filesError!!.message(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+            files == null -> {
+                Text(
+                    stringResource(R.string.details_files_loading),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+            files.isEmpty() -> {
+                Text(
+                    stringResource(R.string.details_files_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+            else -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
                 ) {
-                    Text(
-                        file.path,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "${formatBytes(file.downloadedBytes)} / ${formatBytes(file.sizeBytes)} · " +
-                            file.priority.label(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    DropdownMenu(
-                        expanded = priorityMenuOpen,
-                        onDismissRequest = { priorityMenuOpen = false },
-                    ) {
-                        FilePriority.entries.forEach { priority ->
-                            DropdownMenuItem(
-                                text = { Text(priority.label()) },
-                                leadingIcon = { RadioButton(selected = priority == file.priority, onClick = null) },
-                                onClick = {
-                                    priorityMenuOpen = false
-                                    if (priority != file.priority) {
-                                        viewModel.setFilePriority(torrent.id, file, priority)
-                                    }
-                                },
-                            )
-                        }
+                    items(files, key = { it.index }) { file ->
+                        FileRow(torrentId = torrent.id, file = file, viewModel = viewModel)
                     }
                 }
             }
         }
-        Spacer(Modifier.height(32.dp))
     }
 
     if (showRemoveDialog) {
@@ -282,10 +329,15 @@ fun TorrentDetailsContent(
             text = {
                 Column {
                     Text(stringResource(R.string.details_remove_message, torrent.name))
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = alsoDeleteData, onCheckedChange = { alsoDeleteData = it })
-                        Text(stringResource(R.string.details_remove_also_data))
+                    if (DaemonCapability.DELETE_DATA in ui.capabilities) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { alsoDeleteData = !alsoDeleteData },
+                        ) {
+                            Checkbox(checked = alsoDeleteData, onCheckedChange = { alsoDeleteData = it })
+                            Text(stringResource(R.string.details_remove_also_data))
+                        }
                     }
                 }
             },
@@ -304,6 +356,114 @@ fun TorrentDetailsContent(
                 }
             },
         )
+    }
+
+    if (showLabelDialog) {
+        var label by remember { mutableStateOf(torrent.labels.firstOrNull().orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { showLabelDialog = false },
+            title = { Text(stringResource(R.string.details_set_label)) },
+            text = {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text(stringResource(R.string.details_labels)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.setLabels(torrent.id, listOf(label.trim()).filter { it.isNotEmpty() })
+                    showLabelDialog = false
+                }) { Text(stringResource(R.string.settings_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLabelDialog = false }) {
+                    Text(stringResource(R.string.details_cancel))
+                }
+            },
+        )
+    }
+
+    if (showLocationDialog) {
+        var path by remember { mutableStateOf(torrent.downloadDir.orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { showLocationDialog = false },
+            title = { Text(stringResource(R.string.details_set_location)) },
+            text = {
+                OutlinedTextField(
+                    value = path,
+                    onValueChange = { path = it },
+                    label = { Text(stringResource(R.string.details_location)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.setLocation(torrent.id, path.trim(), moveData = true)
+                        showLocationDialog = false
+                    },
+                    enabled = path.isNotBlank(),
+                ) { Text(stringResource(R.string.settings_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLocationDialog = false }) {
+                    Text(stringResource(R.string.details_cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun FileRow(torrentId: String, file: TorrentFile, viewModel: TorrentsViewModel) {
+    var priorityMenuOpen by remember(file.index) { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable { priorityMenuOpen = true }
+            .padding(vertical = 6.dp),
+    ) {
+        Text(
+            file.path,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        LinearProgressIndicator(
+            progress = { file.progress },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        )
+        Text(
+            stringResource(
+                R.string.details_file_meta,
+                formatBytes(file.downloadedBytes),
+                formatBytes(file.sizeBytes),
+                file.priority.label(),
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        DropdownMenu(
+            expanded = priorityMenuOpen,
+            onDismissRequest = { priorityMenuOpen = false },
+        ) {
+            FilePriority.entries.forEach { priority ->
+                DropdownMenuItem(
+                    text = { Text(priority.label()) },
+                    leadingIcon = { RadioButton(selected = priority == file.priority, onClick = null) },
+                    onClick = {
+                        priorityMenuOpen = false
+                        if (priority != file.priority) {
+                            viewModel.setFilePriority(torrentId, file, priority)
+                        }
+                    },
+                )
+            }
+        }
     }
 }
 

@@ -27,8 +27,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RssFeed
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
@@ -121,8 +121,8 @@ fun RssFeedsScreen(
                             trailingContent = {
                                 IconButton(onClick = { editingFeed = feed }) {
                                     Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = stringResource(R.string.rss_delete_feed),
+                                        Icons.Default.Settings,
+                                        contentDescription = stringResource(R.string.rss_edit_feed),
                                     )
                                 }
                             },
@@ -136,39 +136,44 @@ fun RssFeedsScreen(
 
     if (showAddDialog) {
         EditFeedDialog(
+            existing = null,
             onDismiss = { showAddDialog = false },
             onSave = { name, url ->
                 viewModel.saveFeed(RssFeed(id = viewModel.newFeedId(), name = name, url = url))
                 showAddDialog = false
             },
+            onDelete = null,
         )
     }
 
     editingFeed?.let { feed ->
-        AlertDialog(
-            onDismissRequest = { editingFeed = null },
-            title = { Text(stringResource(R.string.rss_delete_feed)) },
-            text = { Text(feed.displayName) },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteFeed(feed.id)
-                    editingFeed = null
-                }) { Text(stringResource(R.string.details_remove_confirm)) }
+        EditFeedDialog(
+            existing = feed,
+            onDismiss = { editingFeed = null },
+            onSave = { name, url ->
+                viewModel.saveFeed(feed.copy(name = name, url = url))
+                editingFeed = null
             },
-            dismissButton = {
-                TextButton(onClick = { editingFeed = null }) { Text(stringResource(R.string.details_cancel)) }
+            onDelete = {
+                viewModel.deleteFeed(feed.id)
+                editingFeed = null
             },
         )
     }
 }
 
 @Composable
-private fun EditFeedDialog(onDismiss: () -> Unit, onSave: (name: String, url: String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
+private fun EditFeedDialog(
+    existing: RssFeed?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, url: String) -> Unit,
+    onDelete: (() -> Unit)?,
+) {
+    var name by remember { mutableStateOf(existing?.name.orEmpty()) }
+    var url by remember { mutableStateOf(existing?.url.orEmpty()) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.rss_add_feed)) },
+        title = { Text(stringResource(if (existing == null) R.string.rss_add_feed else R.string.rss_edit_feed)) },
         text = {
             Column {
                 OutlinedTextField(
@@ -194,7 +199,12 @@ private fun EditFeedDialog(onDismiss: () -> Unit, onSave: (name: String, url: St
             ) { Text(stringResource(R.string.settings_save)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.details_cancel)) }
+            androidx.compose.foundation.layout.Row {
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) { Text(stringResource(R.string.rss_delete_feed)) }
+                }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.details_cancel)) }
+            }
         },
     )
 }
@@ -213,7 +223,7 @@ fun RssItemsScreen(
     LaunchedEffect(feedId) { viewModel.openFeed(feedId) }
 
     val addedTitle = state.addedItemTitle
-    val addedMessage = if (addedTitle != null) stringResource(R.string.add_success) + ": " + addedTitle else null
+    val addedMessage = addedTitle?.let { stringResource(R.string.add_success_named, it) }
     val addErrorMessage = state.addError?.message()
     LaunchedEffect(addedMessage, addErrorMessage) {
         val message = addedMessage ?: addErrorMessage

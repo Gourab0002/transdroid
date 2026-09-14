@@ -116,7 +116,7 @@ class RssViewModel(private val container: AppContainer) : ViewModel() {
                 return@launch
             }
             try {
-                container.adapterFor(profile).addByUrl(url)
+                container.adapterFor(profile).addByUrl(url, org.transdroid.protocol.AddOptions(startPaused = false))
                 _items.update { it.copy(addedItemTitle = item.title, addError = null) }
             } catch (e: CancellationException) {
                 throw e

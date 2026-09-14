@@ -29,11 +29,17 @@ import java.io.OutputStream
 import javax.crypto.AEADBadTagException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.serialization.json.Json
+
+/** Why the encrypted store could not be read. The file on disk is left untouched. */
+enum class ProfilesReadError { KEYSTORE_UNAVAILABLE, DECRYPT_FAILED }
 
 /**
  * Stores server profiles as one JSON document, encrypted at rest with a Keystore-bound
@@ -44,9 +50,14 @@ class ServerProfilesRepository(context: Context, cipher: ProfilesCipher = Keysto
 
     private val dataStore: DataStore<ProfilesData> = DataStoreFactory.create(
         serializer = EncryptedProfilesSerializer(cipher),
+        // Only JSON that decrypted cleanly but cannot be parsed is wiped. Decrypt/Keystore
+        // failures must never become CorruptionException (that would destroy the blob).
         corruptionHandler = ReplaceFileCorruptionHandler { ProfilesData() },
         produceFile = { context.dataStoreFile(FILE_NAME) },
     )
+
+    private val _readError = MutableStateFlow<ProfilesReadError?>(null)
+    val readError: StateFlow<ProfilesReadError?> = _readError.asStateFlow()
 
     /**
      * The store's data, retrying briefly when the Keystore is transiently unavailable.
@@ -59,7 +70,16 @@ class ServerProfilesRepository(context: Context, cipher: ProfilesCipher = Keysto
             (cause is IOException && attempt < 3).also { retrying -> if (retrying) delay(250 * (attempt + 1)) }
         }
         .catch { cause ->
-            if (cause is IOException) emit(ProfilesData()) else throw cause
+            if (cause is IOException) {
+                _readError.value = if (generateSequence(cause.cause) { it.cause }.any { it is AEADBadTagException }) {
+                    ProfilesReadError.DECRYPT_FAILED
+                } else {
+                    ProfilesReadError.KEYSTORE_UNAVAILABLE
+                }
+                emit(ProfilesData())
+            } else {
+                throw cause
+            }
         }
 
     val profiles: Flow<List<ServerProfile>> = data.map { it.profiles }
@@ -163,9 +183,11 @@ internal class EncryptedProfilesSerializer(private val cipher: ProfilesCipher) :
         val plaintext = try {
             cipher.decrypt(blob)
         } catch (e: AEADBadTagException) {
-            throw CorruptionException("Profiles cannot be decrypted with the current key", e)
+            // Do not wipe: the blob may still decrypt once the Keystore key is available
+            // again, or the user can restore a backup. Treat as retryable IO.
+            throw IOException("Profiles cannot be decrypted with the current key", e)
         } catch (e: IllegalArgumentException) {
-            throw CorruptionException("Profiles blob is malformed", e)
+            throw IOException("Profiles blob is malformed", e)
         } catch (e: Exception) {
             throw IOException("Keystore unavailable while reading server profiles", e)
         }

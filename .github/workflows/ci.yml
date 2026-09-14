@@ -28,6 +28,9 @@ jobs:
       - name: Assemble APKs
         run: ./gradlew :app:assembleFullDebug :app:assembleLiteDebug
 
+      - name: Assemble minified release (unsigned R8 smoke)
+        run: ./gradlew :app:assembleFullRelease :app:assembleLiteRelease
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

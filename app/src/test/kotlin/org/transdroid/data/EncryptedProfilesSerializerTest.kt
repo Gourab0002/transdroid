@@ -107,14 +107,16 @@ class EncryptedProfilesSerializerTest {
     }
 
     @Test
-    fun `tampered blob is corruption, allowing the wipe-and-replace handler`() = runTest {
+    fun `tampered blob is an IOException so the store file is not wiped`() = runTest {
         val bytes = writeToBytes(sampleData)
         bytes[bytes.size - 1] = (bytes[bytes.size - 1].toInt() xor 0x01).toByte()
 
         try {
             serializer.readFrom(ByteArrayInputStream(bytes))
-            fail("Expected CorruptionException")
+            fail("Expected IOException")
         } catch (expected: CorruptionException) {
+            fail("A decrypt failure must not be treated as corruption")
+        } catch (expected: IOException) {
             assertTrue(expected.cause is AEADBadTagException)
         }
     }

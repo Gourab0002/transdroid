@@ -17,6 +17,7 @@
 package org.transdroid.protocol.deluge
 
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -40,10 +41,13 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.transdroid.protocol.AddOptions
 import org.transdroid.protocol.DaemonAdapter
+import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.DaemonConfig
 import org.transdroid.protocol.DaemonException
 import org.transdroid.protocol.FilePriority
+import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentFile
 import org.transdroid.protocol.TorrentStatus
@@ -66,8 +70,9 @@ class DelugeAdapter(
     @Volatile
     private var sessionCookie: String? = null
 
-    @Volatile
-    private var requestId: Long = 0
+    private val requestId = AtomicLong(0)
+
+    override val capabilities: Set<DaemonCapability> = CAPABILITIES
 
     override suspend fun testConnection(): String {
         ensureAuthenticated()
@@ -160,20 +165,29 @@ class DelugeAdapter(
         )
     }
 
-    override suspend fun addByUrl(url: String, startPaused: Boolean) {
+    override suspend fun addByUrl(url: String, options: AddOptions) {
         ensureAuthenticated()
-        val options = buildJsonObject { if (startPaused) put("add_paused", true) }
+        val addOptions = delugeAddOptions(options)
         if (url.startsWith("magnet:")) {
-            call("core.add_torrent_magnet", url, options)
+            call("core.add_torrent_magnet", url, addOptions)
         } else {
-            call("core.add_torrent_url", url, options)
+            call("core.add_torrent_url", url, addOptions)
         }
     }
 
-    override suspend fun addByFile(fileName: String, contents: ByteArray, startPaused: Boolean) {
+    override suspend fun addByFile(fileName: String, contents: ByteArray, options: AddOptions) {
         ensureAuthenticated()
-        val options = buildJsonObject { if (startPaused) put("add_paused", true) }
-        call("core.add_torrent_file", fileName, Base64.getEncoder().encodeToString(contents), options)
+        call(
+            "core.add_torrent_file",
+            fileName,
+            Base64.getEncoder().encodeToString(contents),
+            delugeAddOptions(options),
+        )
+    }
+
+    private fun delugeAddOptions(options: AddOptions) = buildJsonObject {
+        if (options.startPaused) put("add_paused", true)
+        options.downloadDir?.takeIf { it.isNotBlank() }?.let { put("download_location", it) }
     }
 
     override suspend fun start(torrentId: String) {
@@ -189,6 +203,92 @@ class DelugeAdapter(
     override suspend fun remove(torrentId: String, deleteData: Boolean) {
         ensureAuthenticated()
         call("core.remove_torrent", torrentId, deleteData)
+    }
+
+    override suspend fun setLabels(torrentId: String, labels: List<String>) {
+        ensureAuthenticated()
+        val label = labels.firstOrNull().orEmpty()
+        if (label.isBlank()) {
+            try {
+                call("label.remove_torrent", torrentId)
+            } catch (e: DaemonException.UnexpectedResponse) {
+                // Label plugin may be disabled
+            }
+        } else {
+            call("label.set_torrent", torrentId, label)
+        }
+    }
+
+    override suspend fun setLocation(torrentId: String, path: String, moveData: Boolean) {
+        ensureAuthenticated()
+        call("core.move_storage", buildJsonArray { add(torrentId) }, path)
+    }
+
+    override suspend fun recheck(torrentId: String) {
+        ensureAuthenticated()
+        call("core.force_recheck", buildJsonArray { add(torrentId) })
+    }
+
+    override suspend fun reannounce(torrentId: String) {
+        ensureAuthenticated()
+        call("core.force_reannounce", buildJsonArray { add(torrentId) })
+    }
+
+    override suspend fun setTorrentSpeedLimits(
+        torrentId: String,
+        downloadBytesPerSec: Long?,
+        uploadBytesPerSec: Long?,
+    ) {
+        ensureAuthenticated()
+        val options = buildJsonObject {
+            downloadBytesPerSec?.let { put("max_download_speed", if (it <= 0) -1.0 else it / 1024.0) }
+            uploadBytesPerSec?.let { put("max_upload_speed", if (it <= 0) -1.0 else it / 1024.0) }
+        }
+        call("core.set_torrent_options", buildJsonArray { add(torrentId) }, options)
+    }
+
+    override suspend fun setGlobalSpeedLimits(downloadBytesPerSec: Long?, uploadBytesPerSec: Long?) {
+        ensureAuthenticated()
+        val config = buildJsonObject {
+            downloadBytesPerSec?.let { put("max_download_speed", if (it <= 0) -1.0 else it / 1024.0) }
+            uploadBytesPerSec?.let { put("max_upload_speed", if (it <= 0) -1.0 else it / 1024.0) }
+        }
+        call("core.set_config", config)
+    }
+
+    override suspend fun sessionStats(): SessionStats {
+        ensureAuthenticated()
+        val status = try {
+            call("core.get_session_status", buildJsonArray {
+                add("payload_download_rate")
+                add("payload_upload_rate")
+            }) as? JsonObject
+        } catch (e: DaemonException) {
+            null
+        }
+        val config = try {
+            call("core.get_config") as? JsonObject
+        } catch (e: DaemonException) {
+            null
+        }
+        fun kibToBytes(key: String): Long? {
+            val kib = config?.get(key)?.jsonPrimitive?.doubleOrNull ?: return null
+            return if (kib < 0) 0L else (kib * 1024).toLong()
+        }
+        val downloadDir = config?.get("download_location")?.jsonPrimitive?.contentOrNull
+        val free = try {
+            downloadDir?.let { (call("core.get_free_space", it).jsonPrimitive.doubleOrNull)?.toLong() }
+        } catch (e: DaemonException) {
+            null
+        }
+        return SessionStats(
+            downloadRate = status?.get("payload_download_rate")?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L,
+            uploadRate = status?.get("payload_upload_rate")?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L,
+            downloadLimitBytesPerSec = kibToBytes("max_download_speed"),
+            uploadLimitBytesPerSec = kibToBytes("max_upload_speed"),
+            freeSpaceBytes = free,
+            downloadDir = downloadDir,
+        )
     }
 
     override suspend fun listFiles(torrentId: String): List<TorrentFile> {
@@ -304,13 +404,17 @@ class DelugeAdapter(
                     }
                 }
             })
-            put("id", ++requestId)
+            put("id", requestId.incrementAndGet())
         }.toString()
         val builder = Request.Builder()
             .url(jsonUrl)
             .post(payload.toRequestBody("application/json".toMediaType()))
         sessionCookie?.let { builder.header("Cookie", it) }
         val response = httpClient.executeOnIo(builder.build())
+        if (response.code == 401 || response.code == 403) {
+            response.close()
+            throw DaemonException.Authentication("Deluge rejected the Web UI password")
+        }
         if (!response.isSuccessful) {
             val code = response.code
             response.close()
@@ -327,6 +431,18 @@ class DelugeAdapter(
 
     private companion object {
         const val NOT_AUTHENTICATED_CODE = 1
+
+        val CAPABILITIES = setOf(
+            DaemonCapability.DELETE_DATA,
+            DaemonCapability.SET_LABELS,
+            DaemonCapability.SET_LOCATION,
+            DaemonCapability.RECHECK,
+            DaemonCapability.REANNOUNCE,
+            DaemonCapability.TORRENT_SPEED_LIMITS,
+            DaemonCapability.GLOBAL_SPEED_LIMITS,
+            DaemonCapability.SESSION_STATS,
+            DaemonCapability.ADD_OPTIONS,
+        )
 
         val TORRENT_KEYS = listOf(
             "name", "state", "progress", "download_payload_rate", "upload_payload_rate", "eta",
