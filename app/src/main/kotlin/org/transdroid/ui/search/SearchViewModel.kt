@@ -93,7 +93,7 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun addResult(result: SearchResult) {
+    fun addResult(result: SearchResult, startPaused: Boolean = false) {
         viewModelScope.launch {
             val profile = container.activeProfile.first()
             if (profile == null) {
@@ -103,7 +103,7 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 container.adapterFor(profile).addByUrl(
                     result.torrentUrl,
-                    org.transdroid.protocol.AddOptions(startPaused = false),
+                    org.transdroid.protocol.AddOptions(startPaused = startPaused),
                 )
                 _ui.update { it.copy(addedTitle = result.title, addError = null) }
             } catch (e: CancellationException) {

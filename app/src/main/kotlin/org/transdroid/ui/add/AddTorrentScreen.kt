@@ -38,7 +38,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +68,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.transdroid.R
+import org.transdroid.data.ServerProfile
 import org.transdroid.ui.message
 import org.transdroid.ui.torrents.TorrentsViewModel
 import org.transdroid.ui.torrents.UiError
@@ -88,6 +92,9 @@ fun AddTorrentScreen(
     var fileUri by rememberSaveable { mutableStateOf(if (initialIsFile) initialUrl else null) }
     var invalidInput by rememberSaveable { mutableStateOf(false) }
     var startPaused by rememberSaveable { mutableStateOf(false) }
+    var downloadDir by rememberSaveable { mutableStateOf("") }
+    var label by rememberSaveable { mutableStateOf("") }
+    var targetServerId by rememberSaveable { mutableStateOf(ui.activeProfile?.id) }
     // Deliberately not saveable: the completion callback writes to this composition's state,
     // so restoring `true` across recreation would leave the button disabled forever
     var submitting by remember { mutableStateOf(false) }
@@ -105,7 +112,17 @@ fun AddTorrentScreen(
         }
     }
 
+    fun currentOptions() = org.transdroid.protocol.AddOptions(
+        startPaused = startPaused,
+        downloadDir = downloadDir.trim().takeIf { it.isNotEmpty() },
+        labels = listOf(label.trim()).filter { it.isNotEmpty() },
+    )
+
     fun submit() {
+        val target = ui.profiles.firstOrNull { it.id == targetServerId } ?: ui.activeProfile
+        if (target != null && target.id != ui.activeProfile?.id) {
+            viewModel.setActiveServer(target.id)
+        }
         val pickedFile = fileUri
         error = null
         fileReadFailed = false
@@ -117,7 +134,7 @@ fun AddTorrentScreen(
                     submitting = false
                     fileReadFailed = true
                 } else {
-                    viewModel.addFile(contents.first, contents.second, startPaused) { result ->
+                    viewModel.addFile(contents.first, contents.second, currentOptions()) { result ->
                         submitting = false
                         if (result == null) onDone() else error = result
                     }
@@ -132,7 +149,7 @@ fun AddTorrentScreen(
             invalidInput = true
         } else {
             submitting = true
-            viewModel.add(trimmed, startPaused) { result ->
+            viewModel.add(trimmed, currentOptions()) { result ->
                 submitting = false
                 if (result == null) onDone() else error = result
             }
@@ -142,9 +159,11 @@ fun AddTorrentScreen(
     // With a single configured server there is nothing to choose: a picked or opened
     // .torrent file is added right away instead of asking for another confirming tap.
     // (The paused checkbox sits above the picker, so that choice still comes first.)
-    LaunchedEffect(fileUri, ui.profileCount) {
-        if (fileUri != null && ui.profileCount == 1 && !autoSubmitted &&
-            !submitting && error == null && !fileReadFailed
+    LaunchedEffect(fileUri, url, ui.profileCount) {
+        val incoming = fileUri != null ||
+            url.startsWith("magnet:") || url.startsWith("http://") || url.startsWith("https://")
+        if (incoming && ui.profileCount == 1 && !autoSubmitted &&
+            !submitting && error == null && !fileReadFailed && initialUrl.isNotBlank()
         ) {
             autoSubmitted = true
             submit()
@@ -198,6 +217,16 @@ fun AddTorrentScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 AddPausedCheckbox(startPaused) { startPaused = it }
+                AddExtraFields(
+                    profiles = ui.profiles,
+                    selectedId = targetServerId ?: ui.activeProfile?.id,
+                    onSelectServer = { targetServerId = it },
+                    downloadDir = downloadDir,
+                    onDownloadDir = { downloadDir = it },
+                    label = label,
+                    onLabel = { label = it },
+                    showDirAndLabel = org.transdroid.protocol.DaemonCapability.ADD_OPTIONS in ui.capabilities,
+                )
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(
                     onClick = {
@@ -219,6 +248,16 @@ fun AddTorrentScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 AddPausedCheckbox(startPaused) { startPaused = it }
+                AddExtraFields(
+                    profiles = ui.profiles,
+                    selectedId = targetServerId ?: ui.activeProfile?.id,
+                    onSelectServer = { targetServerId = it },
+                    downloadDir = downloadDir,
+                    onDownloadDir = { downloadDir = it },
+                    label = label,
+                    onLabel = { label = it },
+                    showDirAndLabel = org.transdroid.protocol.DaemonCapability.ADD_OPTIONS in ui.capabilities,
+                )
             }
             if (fileReadFailed) {
                 Spacer(Modifier.height(8.dp))
@@ -241,6 +280,64 @@ fun AddTorrentScreen(
                 Text(stringResource(R.string.add_button, ui.activeProfile?.displayName ?: ""))
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddExtraFields(
+    profiles: List<ServerProfile>,
+    selectedId: String?,
+    onSelectServer: (String) -> Unit,
+    downloadDir: String,
+    onDownloadDir: (String) -> Unit,
+    label: String,
+    onLabel: (String) -> Unit,
+    showDirAndLabel: Boolean,
+) {
+    if (profiles.size > 1) {
+        var expanded by remember { mutableStateOf(false) }
+        val selected = profiles.firstOrNull { it.id == selectedId } ?: profiles.first()
+        Spacer(Modifier.height(8.dp))
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+            OutlinedTextField(
+                value = selected.displayName,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text(stringResource(R.string.add_server)) },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                profiles.forEach { profile ->
+                    DropdownMenuItem(
+                        text = { Text(profile.displayName) },
+                        onClick = {
+                            onSelectServer(profile.id)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (showDirAndLabel) {
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = downloadDir,
+            onValueChange = onDownloadDir,
+            label = { Text(stringResource(R.string.add_download_dir)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = label,
+            onValueChange = onLabel,
+            label = { Text(stringResource(R.string.add_label)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

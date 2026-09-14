@@ -19,6 +19,7 @@ package org.transdroid.protocol.qbittorrent
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -36,10 +37,13 @@ import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.DaemonConfig
 import org.transdroid.protocol.DaemonException
 import org.transdroid.protocol.FilePriority
+import org.transdroid.protocol.QueueMove
 import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentFile
+import org.transdroid.protocol.TorrentPeer
 import org.transdroid.protocol.TorrentStatus
+import org.transdroid.protocol.TorrentTracker
 import org.transdroid.protocol.internal.executeOnIo
 import org.transdroid.protocol.internal.joinPath
 
@@ -237,6 +241,65 @@ class QbittorrentAdapter(
             freeSpaceBytes = prefs?.get("free_space_on_disk")?.jsonPrimitive?.longOrNull,
             downloadDir = prefs?.get("save_path")?.jsonPrimitive?.contentOrNull,
         )
+    }
+
+    override suspend fun listTrackers(torrentId: String): List<TorrentTracker> {
+        val body = get("api/v2/torrents/trackers", mapOf("hash" to torrentId)).use { it.readBodyOrThrow() }
+        val rows = try {
+            json.parseToJsonElement(body).jsonArray
+        } catch (e: Exception) {
+            throw DaemonException.UnexpectedResponse("Cannot parse qBittorrent trackers", e)
+        }
+        return rows.mapNotNull { el ->
+            val obj = el.jsonObject
+            val url = obj["url"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (url.startsWith("**")) return@mapNotNull null
+            val status = obj["status"]?.jsonPrimitive?.contentOrNull
+            TorrentTracker(
+                url = url,
+                working = status == "2",
+                seeders = obj["num_seeds"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()?.takeIf { it >= 0 },
+                leechers = obj["num_leeches"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()?.takeIf { it >= 0 },
+                message = obj["msg"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+            )
+        }
+    }
+
+    override suspend fun listPeers(torrentId: String): List<TorrentPeer> {
+        val body = get("api/v2/sync/torrentPeers", mapOf("hash" to torrentId)).use { it.readBodyOrThrow() }
+        val peersObj = try {
+            json.parseToJsonElement(body).jsonObject["peers"]?.jsonObject
+        } catch (e: Exception) {
+            throw DaemonException.UnexpectedResponse("Cannot parse qBittorrent peers", e)
+        } ?: return emptyList()
+        return peersObj.map { (address, el) ->
+            val obj = el.jsonObject
+            TorrentPeer(
+                address = address,
+                client = obj["client"]?.jsonPrimitive?.contentOrNull,
+                progress = obj["progress"]?.jsonPrimitive?.contentOrNull?.toFloatOrNull() ?: 0f,
+                downloadRate = obj["dl_speed"]?.jsonPrimitive?.longOrNull ?: 0L,
+                uploadRate = obj["up_speed"]?.jsonPrimitive?.longOrNull ?: 0L,
+                isSeed = obj["progress"]?.jsonPrimitive?.contentOrNull?.toFloatOrNull()?.let { it >= 1f } == true,
+            )
+        }
+    }
+
+    override suspend fun forceStart(torrentId: String) {
+        post(
+            "api/v2/torrents/setForceStart",
+            FormBody.Builder().add("hashes", torrentId).add("value", "true").build(),
+        ).use { it.readBodyOrThrow() }
+    }
+
+    override suspend fun moveQueue(torrentId: String, move: QueueMove) {
+        val endpoint = when (move) {
+            QueueMove.TOP -> "api/v2/torrents/topPrio"
+            QueueMove.UP -> "api/v2/torrents/increasePrio"
+            QueueMove.DOWN -> "api/v2/torrents/decreasePrio"
+            QueueMove.BOTTOM -> "api/v2/torrents/bottomPrio"
+        }
+        post(endpoint, FormBody.Builder().add("hashes", torrentId).build()).use { it.readBodyOrThrow() }
     }
 
     override suspend fun listFiles(torrentId: String): List<TorrentFile> {
@@ -445,6 +508,10 @@ class QbittorrentAdapter(
             DaemonCapability.ALT_SPEED,
             DaemonCapability.SESSION_STATS,
             DaemonCapability.ADD_OPTIONS,
+            DaemonCapability.TRACKERS,
+            DaemonCapability.PEERS,
+            DaemonCapability.FORCE_START,
+            DaemonCapability.QUEUE,
         )
     }
 }

@@ -170,6 +170,33 @@ class TransmissionAdapterTest {
     }
 
     @Test
+    fun `force start uses torrent-start-now`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"result":"success","arguments":{}}"""))
+
+        adapter.forceStart("7")
+
+        assertTrue(server.takeRequest().body.readUtf8().contains("\"method\":\"torrent-start-now\""))
+    }
+
+    @Test
+    fun `list trackers parses trackerStats`() = runTest {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"result":"success","arguments":{"torrents":[{"trackerStats":[
+                    {"announce":"https://tracker.example/announce","lastAnnounceSucceeded":true,"seederCount":12,"leecherCount":3,"lastAnnounceResult":"Success"}
+                ]}]}}""",
+            ),
+        )
+
+        val trackers = adapter.listTrackers("7")
+
+        assertEquals(1, trackers.size)
+        assertEquals("https://tracker.example/announce", trackers[0].url)
+        assertTrue(trackers[0].working)
+        assertEquals(12, trackers[0].seeders)
+    }
+
+    @Test
     fun `remove with data sends delete-local-data`() = runTest {
         server.enqueue(MockResponse().setBody("""{"result":"success","arguments":{}}"""))
 

@@ -27,6 +27,8 @@
     <string name="filter_downloading">Downloading</string>
     <string name="filter_seeding">Seeding</string>
     <string name="filter_paused">Paused</string>
+    <string name="filter_checking">Checking</string>
+    <string name="filter_queued">Queued</string>
     <string name="filter_error">Error</string>
     <string name="filter_by_name">Filter by name</string>
 
@@ -68,6 +70,21 @@
     <string name="details_reannounce">Reannounce</string>
     <string name="details_set_label">Set label</string>
     <string name="details_set_location">Set location</string>
+    <string name="details_force_start">Force start</string>
+    <string name="details_queue_top">Queue top</string>
+    <string name="details_queue_up">Queue up</string>
+    <string name="details_queue_down">Queue down</string>
+    <string name="details_queue_bottom">Queue bottom</string>
+    <string name="details_speed_limits">Speed limits</string>
+    <string name="details_section_trackers">Trackers</string>
+    <string name="details_section_peers">Peers</string>
+    <string name="details_trackers_empty">No tracker details</string>
+    <string name="details_peers_empty">No connected peers</string>
+    <string name="details_tracker_working">Working</string>
+    <string name="details_tracker_idle">Idle</string>
+    <string name="add_download_dir">Download directory (optional)</string>
+    <string name="add_label">Label / category (optional)</string>
+    <string name="add_server">Add to server</string>
     <string name="details_transferred_with_speed">%1$s  ↓ %2$s</string>
     <string name="details_uploaded_with_speed">%1$s  ↑ %2$s</string>
     <string name="details_file_meta">%1$s / %2$s · %3$s</string>
@@ -102,6 +119,8 @@
     <string name="rss_empty">Add an RSS feed to see new torrents here</string>
     <string name="rss_add_feed">Add feed</string>
     <string name="rss_edit_feed">Edit feed</string>
+    <string name="rss_auto_download">Auto-download new items</string>
+    <string name="rss_auto_match">Only titles containing (optional)</string>
     <string name="rss_delete_feed">Delete feed</string>
     <string name="rss_feed_url">Feed URL</string>
     <string name="rss_no_items">No items in this feed</string>
@@ -135,6 +154,20 @@
     <string name="settings_speed_download">Download limit (KB/s, 0 = unlimited)</string>
     <string name="settings_speed_upload">Upload limit (KB/s, 0 = unlimited)</string>
     <string name="settings_alt_speed">Alternative speed limits</string>
+    <string name="settings_free_space">Free space: %1$s</string>
+    <string name="settings_apply_limits">Apply limits</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System default</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_widget_server">Widget server</string>
+    <string name="settings_widget_server_active">Same as in the app</string>
+    <string name="settings_notify_rss">Notify for auto-downloaded RSS items</string>
+    <string name="settings_update">App updates</string>
+    <string name="settings_update_checking">Checking for updates…</string>
+    <string name="settings_update_none">You have the latest version</string>
+    <string name="settings_update_available">Update available: %1$s</string>
+    <string name="settings_update_open">Open release</string>
     <string name="settings_host">Host name or IP address</string>
     <string name="settings_port">Port</string>
     <string name="settings_use_ssl">Use HTTPS (SSL)</string>
@@ -210,6 +243,11 @@
 
     <!-- Notifications -->
     <string name="notification_channel_finished">Finished torrents</string>
+    <string name="notification_channel_rss">RSS downloads</string>
+    <plurals name="notification_rss_title">
+        <item quantity="one">RSS torrent added</item>
+        <item quantity="other">%d RSS torrents added</item>
+    </plurals>
 
     <!-- Widget -->
     <string name="widget_description">Torrent counts and speeds of your active server</string>

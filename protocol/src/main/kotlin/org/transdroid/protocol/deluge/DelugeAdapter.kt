@@ -47,10 +47,13 @@ import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.DaemonConfig
 import org.transdroid.protocol.DaemonException
 import org.transdroid.protocol.FilePriority
+import org.transdroid.protocol.QueueMove
 import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentFile
+import org.transdroid.protocol.TorrentPeer
 import org.transdroid.protocol.TorrentStatus
+import org.transdroid.protocol.TorrentTracker
 import org.transdroid.protocol.internal.executeOnIo
 import org.transdroid.protocol.internal.joinPath
 
@@ -256,6 +259,58 @@ class DelugeAdapter(
         call("core.set_config", config)
     }
 
+    override suspend fun listTrackers(torrentId: String): List<TorrentTracker> {
+        ensureAuthenticated()
+        val status = call(
+            "core.get_torrent_status",
+            torrentId,
+            buildJsonArray { add("trackers") },
+        ) as? JsonObject ?: return emptyList()
+        return status["trackers"]?.jsonArray?.mapNotNull { el ->
+            val obj = el.jsonObject
+            val url = obj["url"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            TorrentTracker(
+                url = url,
+                working = true,
+                seeders = obj["scrape_complete"]?.jsonPrimitive?.doubleOrNull?.toInt(),
+                leechers = obj["scrape_incomplete"]?.jsonPrimitive?.doubleOrNull?.toInt(),
+                message = obj["message"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+            )
+        } ?: emptyList()
+    }
+
+    override suspend fun listPeers(torrentId: String): List<TorrentPeer> {
+        ensureAuthenticated()
+        val status = call(
+            "core.get_torrent_status",
+            torrentId,
+            buildJsonArray { add("peers") },
+        ) as? JsonObject ?: return emptyList()
+        return status["peers"]?.jsonArray?.mapNotNull { el ->
+            val obj = el.jsonObject
+            val address = obj["ip"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            TorrentPeer(
+                address = address,
+                client = obj["client"]?.jsonPrimitive?.contentOrNull,
+                progress = ((obj["progress"]?.jsonPrimitive?.floatOrNull ?: 0f) / 100f).coerceIn(0f, 1f),
+                downloadRate = obj["down_speed"]?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L,
+                uploadRate = obj["up_speed"]?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L,
+                isSeed = obj["seed"]?.jsonPrimitive?.booleanOrNull == true,
+            )
+        } ?: emptyList()
+    }
+
+    override suspend fun moveQueue(torrentId: String, move: QueueMove) {
+        ensureAuthenticated()
+        val method = when (move) {
+            QueueMove.TOP -> "core.queue_top"
+            QueueMove.UP -> "core.queue_up"
+            QueueMove.DOWN -> "core.queue_down"
+            QueueMove.BOTTOM -> "core.queue_bottom"
+        }
+        call(method, buildJsonArray { add(torrentId) })
+    }
+
     override suspend fun sessionStats(): SessionStats {
         ensureAuthenticated()
         val status = try {
@@ -442,6 +497,9 @@ class DelugeAdapter(
             DaemonCapability.GLOBAL_SPEED_LIMITS,
             DaemonCapability.SESSION_STATS,
             DaemonCapability.ADD_OPTIONS,
+            DaemonCapability.TRACKERS,
+            DaemonCapability.PEERS,
+            DaemonCapability.QUEUE,
         )
 
         val TORRENT_KEYS = listOf(

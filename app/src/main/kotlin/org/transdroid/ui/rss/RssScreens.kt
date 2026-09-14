@@ -19,6 +19,7 @@ package org.transdroid.ui.rss
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -138,8 +139,16 @@ fun RssFeedsScreen(
         EditFeedDialog(
             existing = null,
             onDismiss = { showAddDialog = false },
-            onSave = { name, url ->
-                viewModel.saveFeed(RssFeed(id = viewModel.newFeedId(), name = name, url = url))
+            onSave = { name, url, auto, match ->
+                viewModel.saveFeed(
+                    RssFeed(
+                        id = viewModel.newFeedId(),
+                        name = name,
+                        url = url,
+                        autoDownload = auto,
+                        matchContains = match,
+                    ),
+                )
                 showAddDialog = false
             },
             onDelete = null,
@@ -150,8 +159,8 @@ fun RssFeedsScreen(
         EditFeedDialog(
             existing = feed,
             onDismiss = { editingFeed = null },
-            onSave = { name, url ->
-                viewModel.saveFeed(feed.copy(name = name, url = url))
+            onSave = { name, url, auto, match ->
+                viewModel.saveFeed(feed.copy(name = name, url = url, autoDownload = auto, matchContains = match))
                 editingFeed = null
             },
             onDelete = {
@@ -166,11 +175,13 @@ fun RssFeedsScreen(
 private fun EditFeedDialog(
     existing: RssFeed?,
     onDismiss: () -> Unit,
-    onSave: (name: String, url: String) -> Unit,
+    onSave: (name: String, url: String, autoDownload: Boolean, match: String) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var url by remember { mutableStateOf(existing?.url.orEmpty()) }
+    var autoDownload by remember { mutableStateOf(existing?.autoDownload == true) }
+    var match by remember { mutableStateOf(existing?.matchContains.orEmpty()) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(if (existing == null) R.string.rss_add_feed else R.string.rss_edit_feed)) },
@@ -190,11 +201,30 @@ private fun EditFeedDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Row(
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    androidx.compose.material3.Checkbox(
+                        checked = autoDownload,
+                        onCheckedChange = { autoDownload = it },
+                    )
+                    Text(stringResource(R.string.rss_auto_download))
+                }
+                if (autoDownload) {
+                    OutlinedTextField(
+                        value = match,
+                        onValueChange = { match = it },
+                        label = { Text(stringResource(R.string.rss_auto_match)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(name.trim(), url.trim()) },
+                onClick = { onSave(name.trim(), url.trim(), autoDownload, match.trim()) },
                 enabled = url.trim().startsWith("http"),
             ) { Text(stringResource(R.string.settings_save)) }
         },
@@ -298,13 +328,28 @@ fun RssItemsScreen(
     }
 
     confirmItem?.let { item ->
+        var startPaused by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { confirmItem = null },
             title = { Text(stringResource(R.string.rss_add_item_title)) },
-            text = { Text(item.title) },
+            text = {
+                Column {
+                    Text(item.title)
+                    Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        androidx.compose.material3.Checkbox(
+                            checked = startPaused,
+                            onCheckedChange = { startPaused = it },
+                        )
+                        Text(stringResource(R.string.add_paused))
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.addItem(item)
+                    viewModel.addItem(item, startPaused)
                     confirmItem = null
                 }) { Text(stringResource(R.string.add_title)) }
             },

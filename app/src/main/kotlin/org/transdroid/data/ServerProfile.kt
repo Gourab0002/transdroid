@@ -78,6 +78,12 @@ data class RssFeed(
     val url: String,
     /** Publication time (unix seconds) of the newest item the user has seen. */
     val lastViewedTimestamp: Long? = null,
+    /** When true, new items are sent to the active server in the background. */
+    val autoDownload: Boolean = false,
+    /** If non-blank, only titles containing this (case-insensitive) are auto-downloaded. */
+    val matchContains: String = "",
+    /** Newest item timestamp already auto-downloaded, so we don't add twice. */
+    val lastAutoDownloadTimestamp: Long? = null,
 ) {
     val displayName: String
         get() = name.ifBlank { url }

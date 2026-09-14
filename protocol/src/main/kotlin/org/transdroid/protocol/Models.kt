@@ -41,6 +41,10 @@ enum class DaemonCapability {
     ALT_SPEED,
     SESSION_STATS,
     ADD_OPTIONS,
+    TRACKERS,
+    PEERS,
+    FORCE_START,
+    QUEUE,
 }
 
 /**
@@ -159,6 +163,25 @@ data class AddOptions(
     val downloadDir: String? = null,
     val labels: List<String> = emptyList(),
 )
+
+data class TorrentTracker(
+    val url: String,
+    val working: Boolean = false,
+    val seeders: Int? = null,
+    val leechers: Int? = null,
+    val message: String? = null,
+)
+
+data class TorrentPeer(
+    val address: String,
+    val client: String? = null,
+    val progress: Float = 0f,
+    val downloadRate: Long = 0,
+    val uploadRate: Long = 0,
+    val isSeed: Boolean = false,
+)
+
+enum class QueueMove { TOP, UP, DOWN, BOTTOM }
 
 /** Daemon-wide transfer snapshot for the status bar, widget, and speed-limit UI. */
 data class SessionStats(

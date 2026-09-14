@@ -40,7 +40,7 @@ class WidgetRefreshWorker(
 
     override suspend fun doWork(): Result {
         val container = applicationContext.appContainer
-        val profile = container.activeProfile.first() ?: return Result.success()
+        val profile = container.widgetProfile.first() ?: return Result.success()
         return try {
             val torrents = container.adapterFor(profile).listTorrents()
             container.widgetStateRepository.update(profile.displayName, torrents)

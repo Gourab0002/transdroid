@@ -1,0 +1,1 @@
+Speed limits and free space in Settings. Trackers, peers, force-start and queue on torrent details. Swipe to start/pause. RSS auto-download. Search/RSS add-paused. Theme override, widget server, in-app update check. Checking/queued filters.

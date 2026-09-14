@@ -28,10 +28,13 @@ import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.DaemonConfig
 import org.transdroid.protocol.DaemonException
 import org.transdroid.protocol.FilePriority
+import org.transdroid.protocol.QueueMove
 import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentFile
+import org.transdroid.protocol.TorrentPeer
 import org.transdroid.protocol.TorrentStatus
+import org.transdroid.protocol.TorrentTracker
 import org.transdroid.protocol.internal.executeOnIo
 
 /**
@@ -186,6 +189,58 @@ class RtorrentAdapter(
         uploadBytesPerSec?.let { call("throttle.global_up.max_rate.set", "", it) }
     }
 
+    override suspend fun listTrackers(torrentId: String): List<TorrentTracker> {
+        val rows = call(
+            "t.multicall",
+            torrentId, "",
+            "t.url=", "t.is_enabled=", "t.scrape_complete=", "t.scrape_incomplete=",
+        ) as? List<*> ?: return emptyList()
+        return rows.mapNotNull { row ->
+            val fields = row as? List<*> ?: return@mapNotNull null
+            val url = fields.getOrNull(0)?.toString()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            fun num(i: Int): Long = (fields.getOrNull(i) as? Number)?.toLong()
+                ?: fields.getOrNull(i)?.toString()?.toLongOrNull() ?: 0L
+            TorrentTracker(
+                url = url,
+                working = num(1) == 1L,
+                seeders = num(2).toInt(),
+                leechers = num(3).toInt(),
+            )
+        }
+    }
+
+    override suspend fun listPeers(torrentId: String): List<TorrentPeer> {
+        val rows = call(
+            "p.multicall",
+            torrentId, "",
+            "p.address=", "p.client_version=", "p.completed_percent=", "p.down_rate=", "p.up_rate=", "p.is_incoming=",
+        ) as? List<*> ?: return emptyList()
+        return rows.mapNotNull { row ->
+            val fields = row as? List<*> ?: return@mapNotNull null
+            val address = fields.getOrNull(0)?.toString()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            fun num(i: Int): Long = (fields.getOrNull(i) as? Number)?.toLong()
+                ?: fields.getOrNull(i)?.toString()?.toLongOrNull() ?: 0L
+            val percent = num(2)
+            TorrentPeer(
+                address = address,
+                client = fields.getOrNull(1)?.toString(),
+                progress = (percent / 100f).coerceIn(0f, 1f),
+                downloadRate = num(3),
+                uploadRate = num(4),
+                isSeed = percent >= 100L,
+            )
+        }
+    }
+
+    override suspend fun moveQueue(torrentId: String, move: QueueMove) {
+        val value = when (move) {
+            QueueMove.TOP, QueueMove.UP -> 3L
+            QueueMove.DOWN -> 1L
+            QueueMove.BOTTOM -> 0L
+        }
+        call("d.priority.set", torrentId, value)
+    }
+
     override suspend fun sessionStats(): SessionStats {
         val down = (call("throttle.global_down.rate") as? Number)?.toLong() ?: 0L
         val up = (call("throttle.global_up.rate") as? Number)?.toLong() ?: 0L
@@ -270,6 +325,9 @@ class RtorrentAdapter(
             DaemonCapability.REANNOUNCE,
             DaemonCapability.GLOBAL_SPEED_LIMITS,
             DaemonCapability.SESSION_STATS,
+            DaemonCapability.TRACKERS,
+            DaemonCapability.PEERS,
+            DaemonCapability.QUEUE,
         )
     }
 }

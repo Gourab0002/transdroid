@@ -39,7 +39,7 @@ class ToggleTorrentAction : ActionCallback {
         val torrentId = parameters[TorrentIdParam] ?: return
         val paused = parameters[TorrentPausedParam] ?: return
         val container = context.appContainer
-        val profile = container.activeProfile.first() ?: return
+        val profile = container.widgetProfile.first() ?: return
         try {
             val adapter = container.adapterFor(profile)
             if (paused) adapter.start(torrentId) else adapter.pause(torrentId)

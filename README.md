@@ -74,9 +74,9 @@ area:
   build, the module layout and the adapter interface as the extension point for adding
   more torrent clients.
 
-Not yet done: F-Droid inclusion (metadata is ready; store screenshots and the fdroiddata
-merge request remain), translations, and the remaining Transdroid 2 client adapters. See
-the [roadmap](transdroid3_plan.md#roadmap).
+Not yet done: F-Droid inclusion (metadata is ready; capture store screenshots on a
+device and open the fdroiddata merge request), translations, and remaining Transdroid 2
+client adapters. See the [roadmap](transdroid3_plan.md#roadmap).
 
 About the rewrite
 =================

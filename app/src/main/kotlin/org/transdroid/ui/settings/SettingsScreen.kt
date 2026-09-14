@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,11 +60,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.booleanResource
@@ -80,6 +83,8 @@ import org.transdroid.BuildConfig
 import org.transdroid.R
 import org.transdroid.data.SearchProviderConfig
 import org.transdroid.data.SettingsRepository
+import org.transdroid.protocol.SessionStats
+import org.transdroid.util.formatBytes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,8 +97,21 @@ fun SettingsScreen(
     val activeId by viewModel.activeServerId.collectAsStateWithLifecycle()
     val providers by viewModel.searchProviders.collectAsStateWithLifecycle()
     val notifyFinished by viewModel.notifyFinished.collectAsStateWithLifecycle()
+    val notifyRss by viewModel.notifyRss.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val widgetServerId by viewModel.widgetServerId.collectAsStateWithLifecycle()
+    val sessionStats by viewModel.sessionStats.collectAsStateWithLifecycle()
+    val sessionCapabilities by viewModel.sessionCapabilities.collectAsStateWithLifecycle()
+    val availableUpdate by viewModel.availableUpdate.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val searchAvailable = booleanResource(R.bool.search_available)
+    val rssAvailable = booleanResource(R.bool.rss_available)
+    val updateCheckAvailable = booleanResource(R.bool.updatecheck_available)
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshSessionStats()
+        if (updateCheckAvailable) viewModel.checkForUpdate(org.transdroid.BuildConfig.VERSION_NAME)
+    }
 
     var editingProvider by remember { mutableStateOf<SearchProviderConfig?>(null) }
     var showProviderDialog by remember { mutableStateOf(false) }
@@ -212,6 +230,79 @@ fun SettingsScreen(
                 }
             }
 
+            item {
+                var themeMenuOpen by remember { mutableStateOf(false) }
+                val themeLabel = when (themeMode) {
+                    SettingsRepository.THEME_LIGHT -> stringResource(R.string.settings_theme_light)
+                    SettingsRepository.THEME_DARK -> stringResource(R.string.settings_theme_dark)
+                    else -> stringResource(R.string.settings_theme_system)
+                }
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_theme)) },
+                    supportingContent = { Text(themeLabel) },
+                    modifier = Modifier.fillMaxWidth().clickable { themeMenuOpen = true },
+                )
+                DropdownMenu(expanded = themeMenuOpen, onDismissRequest = { themeMenuOpen = false }) {
+                    listOf(
+                        SettingsRepository.THEME_SYSTEM to R.string.settings_theme_system,
+                        SettingsRepository.THEME_LIGHT to R.string.settings_theme_light,
+                        SettingsRepository.THEME_DARK to R.string.settings_theme_dark,
+                    ).forEach { (mode, label) ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(label)) },
+                            leadingIcon = { RadioButton(selected = themeMode == mode, onClick = null) },
+                            onClick = {
+                                viewModel.setThemeMode(mode)
+                                themeMenuOpen = false
+                            },
+                        )
+                    }
+                }
+            }
+
+            if (org.transdroid.protocol.DaemonCapability.GLOBAL_SPEED_LIMITS in sessionCapabilities) {
+                item { SectionHeader(stringResource(R.string.settings_speed_limits)) }
+                item {
+                    SpeedLimitsEditor(
+                        stats = sessionStats,
+                        hasAlt = org.transdroid.protocol.DaemonCapability.ALT_SPEED in sessionCapabilities,
+                        onApply = { down, up -> viewModel.setGlobalSpeedLimits(down, up) },
+                        onAlt = { viewModel.setAltSpeedEnabled(it) },
+                    )
+                }
+            }
+
+            if (profiles.size > 1) {
+                item {
+                    var widgetMenuOpen by remember { mutableStateOf(false) }
+                    val widgetName = profiles.firstOrNull { it.id == widgetServerId }?.displayName
+                        ?: stringResource(R.string.settings_widget_server_active)
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.settings_widget_server)) },
+                        supportingContent = { Text(widgetName) },
+                        modifier = Modifier.fillMaxWidth().clickable { widgetMenuOpen = true },
+                    )
+                    DropdownMenu(expanded = widgetMenuOpen, onDismissRequest = { widgetMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.settings_widget_server_active)) },
+                            onClick = {
+                                viewModel.setWidgetServer(null)
+                                widgetMenuOpen = false
+                            },
+                        )
+                        profiles.forEach { profile ->
+                            DropdownMenuItem(
+                                text = { Text(profile.displayName) },
+                                onClick = {
+                                    viewModel.setWidgetServer(profile.id)
+                                    widgetMenuOpen = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
             item { SectionHeader(stringResource(R.string.settings_notifications)) }
             item {
                 ListItem(
@@ -237,6 +328,52 @@ fun SettingsScreen(
                         )
                     },
                 )
+            }
+
+            if (rssAvailable) {
+                item {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.settings_notify_rss)) },
+                        trailingContent = {
+                            Switch(
+                                checked = notifyRss,
+                                onCheckedChange = { viewModel.setNotifyRss(it) },
+                            )
+                        },
+                    )
+                }
+            }
+
+            if (updateCheckAvailable) {
+                item { SectionHeader(stringResource(R.string.settings_update)) }
+                item {
+                    val update = availableUpdate
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                if (update != null) {
+                                    stringResource(R.string.settings_update_available, update.tag)
+                                } else {
+                                    stringResource(R.string.settings_update_none)
+                                },
+                            )
+                        },
+                        trailingContent = if (update != null) {
+                            {
+                                TextButton(onClick = {
+                                    context.startActivity(
+                                        android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            android.net.Uri.parse(update.htmlUrl),
+                                        ),
+                                    )
+                                }) { Text(stringResource(R.string.settings_update_open)) }
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                }
             }
 
             if (searchAvailable) {
@@ -403,6 +540,56 @@ internal fun org.transdroid.protocol.DaemonType.displayNameRes(): Int = when (th
     org.transdroid.protocol.DaemonType.QBITTORRENT -> R.string.client_qbittorrent
     org.transdroid.protocol.DaemonType.RTORRENT -> R.string.client_rtorrent
     org.transdroid.protocol.DaemonType.DELUGE -> R.string.client_deluge
+}
+
+@Composable
+private fun SpeedLimitsEditor(
+    stats: SessionStats?,
+    hasAlt: Boolean,
+    onApply: (Long?, Long?) -> Unit,
+    onAlt: (Boolean) -> Unit,
+) {
+    var down by remember(stats?.downloadLimitBytesPerSec) {
+        mutableStateOf(((stats?.downloadLimitBytesPerSec ?: 0L) / 1000).toString())
+    }
+    var up by remember(stats?.uploadLimitBytesPerSec) {
+        mutableStateOf(((stats?.uploadLimitBytesPerSec ?: 0L) / 1000).toString())
+    }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        stats?.freeSpaceBytes?.let {
+            Text(
+                stringResource(R.string.settings_free_space, formatBytes(it)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        OutlinedTextField(
+            value = down,
+            onValueChange = { down = it.filter { ch -> ch.isDigit() } },
+            label = { Text(stringResource(R.string.settings_speed_download)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = up,
+            onValueChange = { up = it.filter { ch -> ch.isDigit() } },
+            label = { Text(stringResource(R.string.settings_speed_upload)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { onApply(down.toLongOrNull(), up.toLongOrNull()) }) {
+            Text(stringResource(R.string.settings_apply_limits))
+        }
+        if (hasAlt) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = stats?.altSpeedEnabled == true, onCheckedChange = onAlt)
+                Text(stringResource(R.string.settings_alt_speed), modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+    }
 }
 
 private const val MAX_BACKUP_BYTES = 10 * 1024 * 1024

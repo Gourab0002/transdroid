@@ -19,6 +19,7 @@ package org.transdroid.ui.search
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -197,13 +198,25 @@ fun SearchScreen(
     }
 
     confirmResult?.let { result ->
+        var startPaused by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { confirmResult = null },
             title = { Text(stringResource(R.string.rss_add_item_title)) },
-            text = { Text(result.title) },
+            text = {
+                Column {
+                    Text(result.title)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                        androidx.compose.material3.Checkbox(
+                            checked = startPaused,
+                            onCheckedChange = { startPaused = it },
+                        )
+                        Text(stringResource(R.string.add_paused))
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.addResult(result)
+                    viewModel.addResult(result, startPaused)
                     confirmResult = null
                 }) { Text(stringResource(R.string.add_title)) }
             },

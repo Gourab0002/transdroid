@@ -26,9 +26,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.transdroid.data.SettingsRepository
 import org.transdroid.ui.TransdroidApp
 import org.transdroid.ui.theme.TransdroidTheme
 
@@ -48,7 +51,15 @@ class MainActivity : ComponentActivity() {
             savedInstanceState.getString(STATE_PENDING_TORRENT_URL)
         }
         setContent {
-            TransdroidTheme {
+            val themeMode by appContainer.settingsRepository.themeMode.collectAsStateWithLifecycle(
+                SettingsRepository.THEME_SYSTEM,
+            )
+            val dark = when (themeMode) {
+                SettingsRepository.THEME_LIGHT -> false
+                SettingsRepository.THEME_DARK -> true
+                else -> isSystemInDarkTheme()
+            }
+            TransdroidTheme(darkTheme = dark) {
                 val windowSizeClass = calculateWindowSizeClass(this)
                 TransdroidApp(
                     useTwoPane = windowSizeClass.widthSizeClass == WindowWidthSizeClass.Expanded,

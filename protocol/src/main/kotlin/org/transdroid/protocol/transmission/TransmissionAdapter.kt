@@ -45,11 +45,14 @@ import org.transdroid.protocol.DaemonCapability
 import org.transdroid.protocol.DaemonConfig
 import org.transdroid.protocol.DaemonException
 import org.transdroid.protocol.FilePriority
+import org.transdroid.protocol.QueueMove
 import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.internal.executeOnIo
 import org.transdroid.protocol.Torrent
 import org.transdroid.protocol.TorrentFile
+import org.transdroid.protocol.TorrentPeer
 import org.transdroid.protocol.TorrentStatus
+import org.transdroid.protocol.TorrentTracker
 
 /**
  * Adapter for the Transmission RPC protocol (JSON over HTTP POST), as documented in
@@ -214,6 +217,59 @@ class TransmissionAdapter(
 
     override suspend fun setAltSpeedEnabled(enabled: Boolean) {
         request("session-set") { put("alt-speed-enabled", enabled) }
+    }
+
+    override suspend fun listTrackers(torrentId: String): List<TorrentTracker> {
+        val arguments = request("torrent-get") {
+            putIds(torrentId)
+            put("fields", buildJsonArray { add("trackerStats") })
+        }
+        val torrent = arguments["torrents"]?.jsonArray?.firstOrNull()?.jsonObject
+            ?: return emptyList()
+        return torrent["trackerStats"]?.jsonArray?.map { el ->
+            val obj = el.jsonObject
+            TorrentTracker(
+                url = obj["announce"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                working = obj["lastAnnounceSucceeded"]?.jsonPrimitive?.contentOrNull == "true",
+                seeders = obj["seederCount"]?.jsonPrimitive?.intOrNull?.takeIf { it >= 0 },
+                leechers = obj["leecherCount"]?.jsonPrimitive?.intOrNull?.takeIf { it >= 0 },
+                message = obj["lastAnnounceResult"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() && it != "Success" },
+            )
+        }?.filter { it.url.isNotBlank() } ?: emptyList()
+    }
+
+    override suspend fun listPeers(torrentId: String): List<TorrentPeer> {
+        val arguments = request("torrent-get") {
+            putIds(torrentId)
+            put("fields", buildJsonArray { add("peers") })
+        }
+        val torrent = arguments["torrents"]?.jsonArray?.firstOrNull()?.jsonObject
+            ?: return emptyList()
+        return torrent["peers"]?.jsonArray?.map { el ->
+            val obj = el.jsonObject
+            TorrentPeer(
+                address = obj["address"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                client = obj["clientName"]?.jsonPrimitive?.contentOrNull,
+                progress = obj["progress"]?.jsonPrimitive?.floatOrNull ?: 0f,
+                downloadRate = obj["rateToClient"]?.jsonPrimitive?.long ?: 0L,
+                uploadRate = obj["rateToPeer"]?.jsonPrimitive?.long ?: 0L,
+                isSeed = (obj["progress"]?.jsonPrimitive?.floatOrNull ?: 0f) >= 1f,
+            )
+        }?.filter { it.address.isNotBlank() } ?: emptyList()
+    }
+
+    override suspend fun forceStart(torrentId: String) {
+        request("torrent-start-now") { putIds(torrentId) }
+    }
+
+    override suspend fun moveQueue(torrentId: String, move: QueueMove) {
+        val method = when (move) {
+            QueueMove.TOP -> "queue-move-top"
+            QueueMove.UP -> "queue-move-up"
+            QueueMove.DOWN -> "queue-move-down"
+            QueueMove.BOTTOM -> "queue-move-bottom"
+        }
+        request(method) { putIds(torrentId) }
     }
 
     override suspend fun sessionStats(): SessionStats {
@@ -426,6 +482,10 @@ class TransmissionAdapter(
             DaemonCapability.ALT_SPEED,
             DaemonCapability.SESSION_STATS,
             DaemonCapability.ADD_OPTIONS,
+            DaemonCapability.TRACKERS,
+            DaemonCapability.PEERS,
+            DaemonCapability.FORCE_START,
+            DaemonCapability.QUEUE,
         )
 
         val TORRENT_FIELDS = listOf(

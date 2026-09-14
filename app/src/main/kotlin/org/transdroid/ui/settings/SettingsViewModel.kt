@@ -37,11 +37,16 @@ import kotlinx.coroutines.withContext
 import org.transdroid.AppContainer
 import org.transdroid.appContainer
 import org.transdroid.background.FinishedTorrentsWorker
+import org.transdroid.data.AppUpdate
 import org.transdroid.data.BackupCrypto
 import org.transdroid.data.ProfilesData
 import org.transdroid.data.SearchProviderConfig
 import org.transdroid.data.ServerProfile
+import org.transdroid.data.SettingsRepository
+import org.transdroid.data.UpdateChecker
 import org.transdroid.protocol.CertificateFingerprint
+import org.transdroid.protocol.DaemonCapability
+import org.transdroid.protocol.SessionStats
 import org.transdroid.protocol.Tls
 import org.transdroid.protocol.discovery.DiscoveredDaemon
 import org.transdroid.ui.torrents.UiError
@@ -172,6 +177,92 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     val notifyFinished: StateFlow<Boolean> = container.settingsRepository.notifyFinished
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    val notifyRss: StateFlow<Boolean> = container.settingsRepository.notifyRss
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    val themeMode: StateFlow<String> = container.settingsRepository.themeMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsRepository.THEME_SYSTEM)
+
+    val widgetServerId: StateFlow<String?> = container.settingsRepository.widgetServerId
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val _sessionStats = MutableStateFlow<SessionStats?>(null)
+    val sessionStats: StateFlow<SessionStats?> = _sessionStats.asStateFlow()
+
+    private val _sessionCapabilities = MutableStateFlow<Set<DaemonCapability>>(emptySet())
+    val sessionCapabilities: StateFlow<Set<DaemonCapability>> = _sessionCapabilities.asStateFlow()
+
+    private val _update = MutableStateFlow<AppUpdate?>(null)
+    val availableUpdate: StateFlow<AppUpdate?> = _update.asStateFlow()
+
+    fun setThemeMode(mode: String) {
+        viewModelScope.launch { container.settingsRepository.setThemeMode(mode) }
+    }
+
+    fun setWidgetServer(profileId: String?) {
+        viewModelScope.launch { container.settingsRepository.setWidgetServer(profileId) }
+    }
+
+    fun setNotifyRss(enabled: Boolean) {
+        viewModelScope.launch { container.settingsRepository.setNotifyRss(enabled) }
+    }
+
+    fun refreshSessionStats() {
+        viewModelScope.launch {
+            val profile = container.activeProfile.first() ?: return@launch
+            try {
+                val adapter = container.adapterFor(profile)
+                _sessionCapabilities.value = adapter.capabilities
+                if (DaemonCapability.SESSION_STATS in adapter.capabilities) {
+                    _sessionStats.value = adapter.sessionStats()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun setGlobalSpeedLimits(downloadKbps: Long?, uploadKbps: Long?) {
+        viewModelScope.launch {
+            val profile = container.activeProfile.first() ?: return@launch
+            try {
+                val down = downloadKbps?.let { if (it <= 0) 0L else it * 1000 }
+                val up = uploadKbps?.let { if (it <= 0) 0L else it * 1000 }
+                container.adapterFor(profile).setGlobalSpeedLimits(down, up)
+                refreshSessionStats()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun setAltSpeedEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val profile = container.activeProfile.first() ?: return@launch
+            try {
+                container.adapterFor(profile).setAltSpeedEnabled(enabled)
+                refreshSessionStats()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun checkForUpdate(currentVersion: String) {
+        viewModelScope.launch {
+            try {
+                _update.value = UpdateChecker(container.httpClient).latest(currentVersion)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _update.value = null
+            }
+        }
+    }
 
     val pollIntervalSeconds: StateFlow<Int> = container.settingsRepository.pollIntervalSeconds
         .stateIn(

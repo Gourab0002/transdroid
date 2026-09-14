@@ -128,6 +128,22 @@ interface DaemonAdapter {
         unsupported("session stats")
     }
 
+    suspend fun listTrackers(torrentId: String): List<TorrentTracker> {
+        unsupported("list trackers")
+    }
+
+    suspend fun listPeers(torrentId: String): List<TorrentPeer> {
+        unsupported("list peers")
+    }
+
+    suspend fun forceStart(torrentId: String) {
+        unsupported("force start")
+    }
+
+    suspend fun moveQueue(torrentId: String, move: QueueMove) {
+        unsupported("queue")
+    }
+
     private fun unsupported(action: String): Nothing =
         throw DaemonException.Unsupported("This client cannot $action")
 }

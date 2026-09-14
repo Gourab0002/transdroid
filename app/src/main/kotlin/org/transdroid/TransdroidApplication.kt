@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.transdroid.background.FinishedTorrentsWorker
+import org.transdroid.background.RssCheckWorker
 import org.transdroid.background.WidgetRefreshWorker
 import org.transdroid.data.ServerProfile
 import org.transdroid.discovery.LanDiscovery
@@ -55,6 +56,12 @@ class AppContainer(context: Context) {
             profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull()
         }
 
+    /** Server the widgets poll; falls back to the active profile. */
+    val widgetProfile: Flow<ServerProfile?> =
+        combine(profilesRepository.profiles, settingsRepository.widgetServerId, activeProfile) { profiles, widgetId, active ->
+            profiles.firstOrNull { it.id == widgetId } ?: active
+        }
+
     /** Returns a (cached) adapter for [profile]; adapters keep session state like auth cookies. */
     @Synchronized
     fun adapterFor(profile: ServerProfile): DaemonAdapter {
@@ -81,6 +88,7 @@ class TransdroidApplication : Application() {
         container = AppContainer(this)
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             WidgetRefreshWorker.schedule(this@TransdroidApplication)
+            RssCheckWorker.schedule(this@TransdroidApplication)
             if (container.settingsRepository.notifyFinished.first()) {
                 FinishedTorrentsWorker.schedule(this@TransdroidApplication)
             }

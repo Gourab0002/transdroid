@@ -48,9 +48,10 @@ class TorrentFilterTest {
     )
 
     @Test
-    fun `downloading filter includes queued and checking`() {
-        assertTrue(TorrentFilter.DOWNLOADING.matches(torrent("1", "a", TorrentStatus.QUEUED)))
-        assertTrue(TorrentFilter.DOWNLOADING.matches(torrent("1", "a", TorrentStatus.CHECKING)))
+    fun `queued and checking have their own filters`() {
+        assertTrue(TorrentFilter.QUEUED.matches(torrent("1", "a", TorrentStatus.QUEUED)))
+        assertTrue(TorrentFilter.CHECKING.matches(torrent("1", "a", TorrentStatus.CHECKING)))
+        org.junit.Assert.assertFalse(TorrentFilter.DOWNLOADING.matches(torrent("1", "a", TorrentStatus.QUEUED)))
     }
 
     @Test

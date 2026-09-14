@@ -63,6 +63,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -325,15 +328,41 @@ private fun TorrentListContent(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(ui.visibleTorrents, key = { it.id }) { torrent ->
-                        TorrentCard(
-                            torrent = torrent,
-                            selected = torrent.id == ui.selectedTorrentId || torrent.id in ui.selectedIds,
-                            onClick = {
-                                if (ui.selecting) viewModel.toggleSelection(torrent.id)
-                                else onOpenDetails(torrent.id)
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                if (value == SwipeToDismissBoxValue.EndToStart ||
+                                    value == SwipeToDismissBoxValue.StartToEnd
+                                ) {
+                                    viewModel.toggleStartPause(torrent)
+                                }
+                                false
                             },
-                            onLongClick = { viewModel.toggleSelection(torrent.id) },
                         )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                Box(
+                                    Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                                    contentAlignment = Alignment.CenterEnd,
+                                ) {
+                                    val paused = torrent.status == org.transdroid.protocol.TorrentStatus.PAUSED
+                                    Text(
+                                        stringResource(if (paused) R.string.details_start else R.string.details_pause),
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                        ) {
+                            TorrentCard(
+                                torrent = torrent,
+                                selected = torrent.id == ui.selectedTorrentId || torrent.id in ui.selectedIds,
+                                onClick = {
+                                    if (ui.selecting) viewModel.toggleSelection(torrent.id)
+                                    else onOpenDetails(torrent.id)
+                                },
+                                onLongClick = { viewModel.toggleSelection(torrent.id) },
+                            )
+                        }
                     }
                 }
             }
@@ -380,6 +409,8 @@ private fun TorrentFilter.label(): String = stringResource(
         TorrentFilter.DOWNLOADING -> R.string.filter_downloading
         TorrentFilter.SEEDING -> R.string.filter_seeding
         TorrentFilter.PAUSED -> R.string.filter_paused
+        TorrentFilter.CHECKING -> R.string.filter_checking
+        TorrentFilter.QUEUED -> R.string.filter_queued
         TorrentFilter.ERROR -> R.string.filter_error
     }
 )

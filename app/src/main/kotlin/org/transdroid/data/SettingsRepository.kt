@@ -36,6 +36,10 @@ class SettingsRepository(private val context: Context) {
     private val pollIntervalKey = intPreferencesKey("poll_interval_seconds")
     private val torrentFilterKey = stringPreferencesKey("torrent_filter")
     private val torrentSortKey = stringPreferencesKey("torrent_sort")
+    private val labelFilterKey = stringPreferencesKey("label_filter")
+    private val themeModeKey = stringPreferencesKey("theme_mode")
+    private val widgetServerKey = stringPreferencesKey("widget_server_id")
+    private val notifyRssKey = booleanPreferencesKey("notify_rss")
 
     val activeServerId: Flow<String?> = context.settingsDataStore.data.map { it[activeServerKey] }
 
@@ -80,10 +84,42 @@ class SettingsRepository(private val context: Context) {
         context.settingsDataStore.edit { it[torrentSortKey] = sort }
     }
 
+    val labelFilter: Flow<String?> = context.settingsDataStore.data.map { it[labelFilterKey] }
+
+    suspend fun setLabelFilter(label: String?) {
+        context.settingsDataStore.edit {
+            if (label.isNullOrBlank()) it.remove(labelFilterKey) else it[labelFilterKey] = label
+        }
+    }
+
+    /** `system`, `light`, or `dark`. */
+    val themeMode: Flow<String> = context.settingsDataStore.data.map { it[themeModeKey] ?: THEME_SYSTEM }
+
+    suspend fun setThemeMode(mode: String) {
+        context.settingsDataStore.edit { it[themeModeKey] = mode }
+    }
+
+    val widgetServerId: Flow<String?> = context.settingsDataStore.data.map { it[widgetServerKey] }
+
+    suspend fun setWidgetServer(profileId: String?) {
+        context.settingsDataStore.edit {
+            if (profileId.isNullOrBlank()) it.remove(widgetServerKey) else it[widgetServerKey] = profileId
+        }
+    }
+
+    val notifyRss: Flow<Boolean> = context.settingsDataStore.data.map { it[notifyRssKey] ?: false }
+
+    suspend fun setNotifyRss(enabled: Boolean) {
+        context.settingsDataStore.edit { it[notifyRssKey] = enabled }
+    }
+
     private fun unfinishedKey(profileId: String) = stringSetPreferencesKey("unfinished_ids_$profileId")
 
     companion object {
         const val DEFAULT_POLL_INTERVAL_SECONDS = 5
         val POLL_INTERVAL_OPTIONS = listOf(3, 5, 10, 30, 60)
+        const val THEME_SYSTEM = "system"
+        const val THEME_LIGHT = "light"
+        const val THEME_DARK = "dark"
     }
 }

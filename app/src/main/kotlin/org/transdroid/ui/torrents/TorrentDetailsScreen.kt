@@ -139,6 +139,7 @@ fun TorrentDetailsContent(
     var showRemoveDialog by remember { mutableStateOf(false) }
     var showLabelDialog by remember { mutableStateOf(false) }
     var showLocationDialog by remember { mutableStateOf(false) }
+    var showSpeedDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(torrent.id) { viewModel.loadFiles(torrent.id) }
     val files = ui.files[torrent.id]
@@ -214,6 +215,11 @@ fun TorrentDetailsContent(
                         Text(stringResource(R.string.details_reannounce))
                     }
                 }
+                if (DaemonCapability.FORCE_START in ui.capabilities) {
+                    TextButton(onClick = { viewModel.forceStart(torrent.id) }) {
+                        Text(stringResource(R.string.details_force_start))
+                    }
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (DaemonCapability.SET_LABELS in ui.capabilities) {
@@ -224,6 +230,27 @@ fun TorrentDetailsContent(
                 if (DaemonCapability.SET_LOCATION in ui.capabilities) {
                     TextButton(onClick = { showLocationDialog = true }) {
                         Text(stringResource(R.string.details_set_location))
+                    }
+                }
+                if (DaemonCapability.TORRENT_SPEED_LIMITS in ui.capabilities) {
+                    TextButton(onClick = { showSpeedDialog = true }) {
+                        Text(stringResource(R.string.details_speed_limits))
+                    }
+                }
+            }
+            if (DaemonCapability.QUEUE in ui.capabilities) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { viewModel.moveQueue(torrent.id, org.transdroid.protocol.QueueMove.TOP) }) {
+                        Text(stringResource(R.string.details_queue_top))
+                    }
+                    TextButton(onClick = { viewModel.moveQueue(torrent.id, org.transdroid.protocol.QueueMove.UP) }) {
+                        Text(stringResource(R.string.details_queue_up))
+                    }
+                    TextButton(onClick = { viewModel.moveQueue(torrent.id, org.transdroid.protocol.QueueMove.DOWN) }) {
+                        Text(stringResource(R.string.details_queue_down))
+                    }
+                    TextButton(onClick = { viewModel.moveQueue(torrent.id, org.transdroid.protocol.QueueMove.BOTTOM) }) {
+                        Text(stringResource(R.string.details_queue_bottom))
                     }
                 }
             }
@@ -309,12 +336,86 @@ fun TorrentDetailsContent(
                 )
             }
             else -> {
+                val trackers = ui.trackers[torrent.id].orEmpty()
+                val peers = ui.peers[torrent.id].orEmpty()
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
                 ) {
                     items(files, key = { it.index }) { file ->
                         FileRow(torrentId = torrent.id, file = file, viewModel = viewModel)
+                    }
+                    if (DaemonCapability.TRACKERS in ui.capabilities) {
+                        item {
+                            Text(
+                                stringResource(R.string.details_section_trackers),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+                            )
+                        }
+                        if (trackers.isEmpty()) {
+                            item {
+                                Text(
+                                    stringResource(R.string.details_trackers_empty),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            items(trackers, key = { it.url }) { tracker ->
+                                Column(Modifier.padding(vertical = 4.dp)) {
+                                    Text(tracker.url, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                                    Text(
+                                        buildString {
+                                            append(
+                                                stringResource(
+                                                    if (tracker.working) R.string.details_tracker_working
+                                                    else R.string.details_tracker_idle,
+                                                ),
+                                            )
+                                            tracker.seeders?.let { append(" · $it") }
+                                            tracker.message?.let { append(" · $it") }
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (DaemonCapability.PEERS in ui.capabilities) {
+                        item {
+                            Text(
+                                stringResource(R.string.details_section_peers),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+                            )
+                        }
+                        if (peers.isEmpty()) {
+                            item {
+                                Text(
+                                    stringResource(R.string.details_peers_empty),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            items(peers, key = { it.address }) { peer ->
+                                Column(Modifier.padding(vertical = 4.dp)) {
+                                    Text(peer.address, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        listOfNotNull(
+                                            peer.client,
+                                            formatBytes(peer.downloadRate) + "/s",
+                                        ).joinToString(" · "),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -380,6 +481,45 @@ fun TorrentDetailsContent(
             },
             dismissButton = {
                 TextButton(onClick = { showLabelDialog = false }) {
+                    Text(stringResource(R.string.details_cancel))
+                }
+            },
+        )
+    }
+
+    if (showSpeedDialog) {
+        var down by remember { mutableStateOf("0") }
+        var up by remember { mutableStateOf("0") }
+        AlertDialog(
+            onDismissRequest = { showSpeedDialog = false },
+            title = { Text(stringResource(R.string.details_speed_limits)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = down,
+                        onValueChange = { down = it.filter { ch -> ch.isDigit() } },
+                        label = { Text(stringResource(R.string.settings_speed_download)) },
+                        singleLine = true,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = up,
+                        onValueChange = { up = it.filter { ch -> ch.isDigit() } },
+                        label = { Text(stringResource(R.string.settings_speed_upload)) },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val downB = down.toLongOrNull()?.let { if (it <= 0) 0L else it * 1000 }
+                    val upB = up.toLongOrNull()?.let { if (it <= 0) 0L else it * 1000 }
+                    viewModel.setTorrentSpeedLimits(torrent.id, downB, upB)
+                    showSpeedDialog = false
+                }) { Text(stringResource(R.string.settings_apply_limits)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSpeedDialog = false }) {
                     Text(stringResource(R.string.details_cancel))
                 }
             },
