@@ -1,3 +1,5 @@
+<p align="center"><img src="fastlane/metadata/android/en-US/images/icon.png" width="128" alt="Transdroid app icon"></p>
+
 Transdroid 3
 ============
 
