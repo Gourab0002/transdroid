@@ -1,0 +1,1 @@
+Transdroid 1.0. Manage Transmission, qBittorrent, rTorrent and Deluge from your phone: torrent list, details, search, RSS auto-download, widgets, encrypted servers and signed release builds.

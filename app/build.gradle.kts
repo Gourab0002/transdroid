@@ -22,8 +22,8 @@ android {
         applicationId = "org.transdroid"
         minSdk = 29
         targetSdk = 36
-        versionCode = 3000011
-        versionName = "3.0.0-alpha11"
+        versionCode = 3000100
+        versionName = "1.0.0"
     }
 
     if (hasSigningConfig) {
